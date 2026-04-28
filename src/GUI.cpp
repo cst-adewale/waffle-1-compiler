@@ -5,8 +5,8 @@
 #include <windows.h>
 #include <string>
 #include <vector>
-#include "Lexer.hpp"
-#include "Parser.hpp"
+#include "../include/Lexer.hpp"
+#include "../include/Parser.hpp"
 #include <gdiplus.h>
 #pragma comment (lib,"Gdiplus.lib")
 

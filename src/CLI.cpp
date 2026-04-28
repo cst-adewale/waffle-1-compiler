@@ -1,7 +1,7 @@
 #include <iostream>
 #include <string>
-#include "Lexer.hpp"
-#include "Parser.hpp"
+#include "../include/Lexer.hpp"
+#include "../include/Parser.hpp"
 
 int main() {
     std::string input;
