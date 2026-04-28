@@ -93,19 +93,22 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
             hFont = CreateFont(18, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, ANSI_CHARSET, 
                 OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, DEFAULT_QUALITY, DEFAULT_PITCH | FF_MODERN, L"Consolas");
 
+            // 1. Input Area (Top Left)
             hEditInput = CreateWindowEx(0, L"EDIT", L"", 
                 WS_CHILD | WS_VISIBLE | WS_BORDER | ES_MULTILINE | ES_AUTOVSCROLL,
-                20, 60, 600, 250, hwnd, NULL, NULL, NULL);
+                20, 60, 600, 300, hwnd, NULL, NULL, NULL);
             SendMessage(hEditInput, WM_SETFONT, (WPARAM)hFont, TRUE);
 
-            hButtonRun = CreateWindow(L"BUTTON", L"RUN CODE", 
-                WS_TABSTOP | WS_VISIBLE | WS_CHILD | BS_DEFPUSHBUTTON,
-                20, 320, 100, 40, hwnd, (HMENU)1, NULL, NULL);
-
+            // 2. Output Area (Bottom Left)
             hOutputArea = CreateWindowEx(0, L"EDIT", L"Console Ready...", 
                 WS_CHILD | WS_VISIBLE | WS_BORDER | ES_MULTILINE | ES_READONLY | ES_AUTOVSCROLL,
                 20, 380, 600, 250, hwnd, NULL, NULL, NULL);
             SendMessage(hOutputArea, WM_SETFONT, (WPARAM)hFont, TRUE);
+
+            // 3. Run Button (Middle)
+            hButtonRun = CreateWindow(L"BUTTON", L"RUN", 
+                WS_TABSTOP | WS_VISIBLE | WS_CHILD | BS_DEFPUSHBUTTON,
+                520, 20, 100, 30, hwnd, (HMENU)1, NULL, NULL);
             break;
         }
         case WM_COMMAND: {
@@ -113,15 +116,13 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
                 int length = GetWindowTextLengthA(hEditInput);
                 char* buffer = new char[length + 1];
                 GetWindowTextA(hEditInput, buffer, length + 1);
-                
                 try {
                     Lexer lexer(buffer);
                     auto tokens = lexer.tokenize();
                     Parser parser(tokens);
                     auto ast = parser.parse();
-                    double result = ast->evaluate();
-                    std::string out = "Result: " + std::to_string(result);
-                    SetWindowTextA(hOutputArea, out.c_str());
+                    std::string resultStr = "Result: " + std::to_string(ast->evaluate());
+                    SetWindowTextA(hOutputArea, resultStr.c_str());
                 } catch (const std::exception& e) {
                     SetWindowTextA(hOutputArea, e.what());
                 }
@@ -140,19 +141,20 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
             PAINTSTRUCT ps;
             HDC hdc = BeginPaint(hwnd, &ps);
             
-            // Draw Mac Buttons
+            // Mac Buttons
             HBRUSH rB = CreateSolidBrush(RGB(255, 95, 87)); Ellipse(hdc, 20, 20, 35, 35); DeleteObject(rB);
             HBRUSH yB = CreateSolidBrush(RGB(254, 188, 46)); Ellipse(hdc, 45, 20, 60, 35); DeleteObject(yB);
             HBRUSH gB = CreateSolidBrush(RGB(40, 200, 64)); Ellipse(hdc, 70, 20, 85, 35); DeleteObject(gB);
 
-            // Draw Graphical Tree Area
-            RECT treeRect = { 640, 60, 960, 630 };
+            // Right Panel (Graphical Tree)
+            RECT treeRect = { 640, 60, 980, 630 };
             HBRUSH bg = CreateSolidBrush(RGB(20, 20, 20));
             FillRect(hdc, &treeRect, bg);
+            FrameRect(hdc, &treeRect, (HBRUSH)GetStockObject(WHITE_BRUSH));
             DeleteObject(bg);
 
             if (currentAST) {
-                DrawNode(hdc, currentAST.get(), 800, 150, 100);
+                DrawNode(hdc, currentAST.get(), 810, 120, 80);
             }
 
             EndPaint(hwnd, &ps);

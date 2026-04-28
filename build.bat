@@ -1,4 +1,5 @@
 @echo off
+taskkill /F /IM waffle_studio.exe >nul 2>&1
 echo Building Waffle Studio...
 g++ -Iinclude src/Lexer.cpp src/Parser.cpp src/GUI.cpp -o waffle_studio.exe -lgdi32 -luser32 -mwindows -municode
 if %ERRORLEVEL% EQU 0 (
