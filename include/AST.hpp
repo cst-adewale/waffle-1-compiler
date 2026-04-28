@@ -11,8 +11,8 @@ public:
 };
 
 class NumberNode : public ASTNode {
-public:
     double value;
+public:
     NumberNode(double val) : value(val) {}
     double evaluate() override { return value; }
     std::string toString(int indent = 0) override {
@@ -21,10 +21,10 @@ public:
 };
 
 class BinaryOpNode : public ASTNode {
-public:
     std::string op;
     std::unique_ptr<ASTNode> left;
     std::unique_ptr<ASTNode> right;
+public:
     BinaryOpNode(std::string op, std::unique_ptr<ASTNode> left, std::unique_ptr<ASTNode> right)
         : op(op), left(std::move(left)), right(std::move(right)) {}
     
@@ -45,8 +45,8 @@ public:
 };
 
 class ReturnNode : public ASTNode {
-public:
     std::unique_ptr<ASTNode> expression;
+public:
     ReturnNode(std::unique_ptr<ASTNode> expr) : expression(std::move(expr)) {}
     double evaluate() override { return expression->evaluate(); }
     std::string toString(int indent = 0) override {
@@ -55,8 +55,8 @@ public:
 };
 
 class ProgramNode : public ASTNode {
-public:
     std::vector<std::unique_ptr<ASTNode>> statements;
+public:
     void addStatement(std::unique_ptr<ASTNode> stmt) { statements.push_back(std::move(stmt)); }
     double evaluate() override {
         double lastVal = 0;

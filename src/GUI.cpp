@@ -7,76 +7,68 @@
 #include <vector>
 #include "Lexer.hpp"
 #include "Parser.hpp"
+#include <gdiplus.h>
+#pragma comment (lib,"Gdiplus.lib")
+
+using namespace Gdiplus;
 
 // Global variables for the UI
 HWND hEditInput;
 HWND hOutputArea;
-HWND hButtonRun;
+HWND hVisualizerArea;
 HFONT hFont;
-std::unique_ptr<ASTNode> currentAST; // Store the last successfully parsed AST
+ULONG_PTR gdiplusToken;
 
 LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam);
 
-void DrawNode(HDC hdc, ASTNode* node, int x, int y, int xOffset) {
-    if (!node) return;
-
-    // Draw the circle for the node
-    HBRUSH brush = CreateSolidBrush(RGB(70, 70, 70));
-    SelectObject(hdc, brush);
-    Ellipse(hdc, x - 20, y - 20, x + 20, y + 20);
-    DeleteObject(brush);
-
-    // Draw the text inside the node
-    std::string label = "?";
-    if (auto n = dynamic_cast<NumberNode*>(node)) {
-        label = std::to_string((int)n->value);
-    } else if (auto b = dynamic_cast<BinaryOpNode*>(node)) {
-        label = b->op;
-        // Draw lines to children
-        MoveToEx(hdc, x, y, NULL); LineTo(hdc, x - xOffset, y + 80);
-        MoveToEx(hdc, x, y, NULL); LineTo(hdc, x + xOffset, y + 80);
-        DrawNode(hdc, b->left.get(), x - xOffset, y + 80, xOffset / 2);
-        DrawNode(hdc, b->right.get(), x + xOffset, y + 80, xOffset / 2);
-    } else if (auto r = dynamic_cast<ReturnNode*>(node)) {
-        label = "ret";
-        MoveToEx(hdc, x, y, NULL); LineTo(hdc, x, y + 80);
-        DrawNode(hdc, r->expression.get(), x, y + 80, xOffset);
-    } else if (auto p = dynamic_cast<ProgramNode*>(node)) {
-        label = "Prog";
-        if (!p->statements.empty()) {
-            MoveToEx(hdc, x, y, NULL); LineTo(hdc, x, y + 80);
-            DrawNode(hdc, p->statements[0].get(), x, y + 80, xOffset);
-        }
-    }
-
-    SetTextColor(hdc, RGB(255, 255, 255));
-    SetBkMode(hdc, TRANSPARENT);
-    TextOutA(hdc, x - 8, y - 8, label.c_str(), label.length());
-}
-
-void UpdateVisualizer(HWND hwnd, const std::string& input) {
+void UpdateVisualizer(const std::string& input) {
     if (input.empty()) return;
+
     try {
         Lexer lexer(input);
         auto tokens = lexer.tokenize();
+
+        std::string tokenStr = "--- TOKENS ---\r\n";
+        for (const auto& t : tokens) {
+            if (t.type == WToken::END_OF_FILE) break;
+            tokenStr += "[" + t.value + "] ";
+        }
+
         Parser parser(tokens);
-        currentAST = parser.parse();
-        InvalidateRect(hwnd, NULL, TRUE); // Trigger a repaint to draw the tree
-    } catch (...) {}
+        auto ast = parser.parse();
+        
+        std::string astStr = "\r\n\r\n--- AST TREE ---\r\n" + ast->toString();
+        
+        SetWindowTextA(hVisualizerArea, (tokenStr + astStr).c_str());
+    } catch (...) {
+        // Silently ignore errors during live typing
+    }
 }
 
 int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR pCmdLine, int nCmdShow) {
+    GdiplusStartupInput gdiplusStartupInput;
+    GdiplusStartup(&gdiplusToken, &gdiplusStartupInput, NULL);
+
     const wchar_t CLASS_NAME[] = L"WaffleStudioWindow";
+
     WNDCLASS wc = { };
     wc.lpfnWndProc = WindowProc;
     wc.hInstance = hInstance;
     wc.lpszClassName = CLASS_NAME;
     wc.hCursor = LoadCursor(NULL, IDC_ARROW);
-    wc.hbrBackground = CreateSolidBrush(RGB(30, 30, 30));
+    wc.hbrBackground = CreateSolidBrush(RGB(30, 30, 30)); // Dark background
+
     RegisterClass(&wc);
 
-    HWND hwnd = CreateWindowEx(0, CLASS_NAME, L"Waffle Studio", WS_OVERLAPPEDWINDOW,
-        CW_USEDEFAULT, CW_USEDEFAULT, 1000, 700, NULL, NULL, hInstance, NULL);
+    HWND hwnd = CreateWindowEx(
+        0, CLASS_NAME, L"Waffle Studio",
+        WS_POPUP | WS_THICKFRAME | WS_VISIBLE,
+        CW_USEDEFAULT, CW_USEDEFAULT, 1000, 700,
+        NULL, NULL, hInstance, NULL
+    );
+
+    if (hwnd == NULL) return 0;
+
     ShowWindow(hwnd, nCmdShow);
 
     MSG msg = { };
@@ -84,112 +76,172 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR pCmdLine
         TranslateMessage(&msg);
         DispatchMessage(&msg);
     }
+
+    GdiplusShutdown(gdiplusToken);
     return 0;
 }
 
 LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
+    static POINT ptLastMouse;
+    static bool bDragging = false;
+
     switch (uMsg) {
         case WM_CREATE: {
-            hFont = CreateFont(18, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, ANSI_CHARSET, 
-                OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, DEFAULT_QUALITY, DEFAULT_PITCH | FF_MODERN, L"Consolas");
+            hFont = CreateFont(19, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, ANSI_CHARSET, 
+                               OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY, 
+                               DEFAULT_PITCH | FF_MODERN, L"Consolas");
 
-            // 1. Input Area (Transparent-ish looking Edit)
             hEditInput = CreateWindowEx(0, L"EDIT", L"", 
-                WS_CHILD | WS_VISIBLE | ES_MULTILINE | ES_AUTOVSCROLL,
-                30, 80, 580, 260, hwnd, NULL, NULL, NULL);
+                WS_CHILD | WS_VISIBLE | ES_MULTILINE | ES_AUTOVSCROLL | ES_WANTRETURN,
+                25, 80, 600, 300, hwnd, NULL, NULL, NULL);
             SendMessage(hEditInput, WM_SETFONT, (WPARAM)hFont, TRUE);
 
-            // 2. Output Area (Bottom)
-            hOutputArea = CreateWindowEx(0, L"EDIT", L"SYSTEM ONLINE...", 
+            hOutputArea = CreateWindowEx(0, L"EDIT", L"waffle-shell > Welcome to Waffle Studio\r\nType your C++ math code above...", 
                 WS_CHILD | WS_VISIBLE | ES_MULTILINE | ES_READONLY | ES_AUTOVSCROLL,
-                30, 400, 580, 230, hwnd, NULL, NULL, NULL);
+                25, 400, 600, 250, hwnd, NULL, NULL, NULL);
             SendMessage(hOutputArea, WM_SETFONT, (WPARAM)hFont, TRUE);
 
-            // 3. Minimalist RUN Button
-            hButtonRun = CreateWindow(L"BUTTON", L"[ RUN ]", 
-                WS_VISIBLE | WS_CHILD | BS_FLAT,
-                480, 20, 100, 30, hwnd, (HMENU)1, NULL, NULL);
+            hVisualizerArea = CreateWindowEx(0, L"EDIT", L"--- COMPILER GUTS ---", 
+                WS_CHILD | WS_VISIBLE | ES_MULTILINE | ES_READONLY | ES_AUTOVSCROLL,
+                650, 80, 310, 570, hwnd, NULL, NULL, NULL);
+            SendMessage(hVisualizerArea, WM_SETFONT, (WPARAM)hFont, TRUE);
             break;
         }
-        case WM_COMMAND: {
-            if (LOWORD(wParam) == 1) { // Run Button
-                int length = GetWindowTextLengthA(hEditInput);
-                char* buffer = new char[length + 1];
-                GetWindowTextA(hEditInput, buffer, length + 1);
-                try {
-                    Lexer lexer(buffer);
-                    auto tokens = lexer.tokenize();
-                    Parser parser(tokens);
-                    auto ast = parser.parse();
-                    std::string resultStr = "> RESULT: " + std::to_string(ast->evaluate());
-                    SetWindowTextA(hOutputArea, resultStr.c_str());
-                } catch (const std::exception& e) {
-                    SetWindowTextA(hOutputArea, e.what());
+
+        case WM_SIZE: {
+            int width = LOWORD(lParam);
+            int height = HIWORD(lParam);
+
+            // Responsive Layout Calculation
+            int leftPanelWidth = (width * 65) / 100;
+            int rightPanelWidth = (width * 30) / 100;
+            int inputHeight = (height * 50) / 100;
+            int outputHeight = (height * 35) / 100;
+
+            MoveWindow(hEditInput, 25, 80, leftPanelWidth - 25, inputHeight, TRUE);
+            MoveWindow(hOutputArea, 25, 80 + inputHeight + 20, leftPanelWidth - 25, outputHeight, TRUE);
+            MoveWindow(hVisualizerArea, leftPanelWidth + 20, 80, rightPanelWidth, height - 100, TRUE);
+            
+            InvalidateRect(hwnd, NULL, TRUE); // Redraw title bar
+            break;
+        }
+
+        case WM_LBUTTONDOWN: {
+            int x = LOWORD(lParam);
+            int y = HIWORD(lParam);
+
+            if (y >= 18 && y <= 30) {
+                if (x >= 20 && x <= 32) PostQuitMessage(0);
+                else if (x >= 40 && x <= 52) ShowWindow(hwnd, SW_MINIMIZE);
+                else if (x >= 60 && x <= 72) {
+                    if (IsZoomed(hwnd)) ShowWindow(hwnd, SW_RESTORE);
+                    else ShowWindow(hwnd, SW_MAXIMIZE);
                 }
-                delete[] buffer;
             }
+
+            if (y < 50) {
+                bDragging = true;
+                GetCursorPos(&ptLastMouse);
+                SetCapture(hwnd);
+            }
+            break;
+        }
+
+        case WM_MOUSEMOVE: {
+            if (bDragging) {
+                POINT ptCurrent;
+                GetCursorPos(&ptCurrent);
+                int dx = ptCurrent.x - ptLastMouse.x;
+                int dy = ptCurrent.y - ptLastMouse.y;
+
+                RECT rc;
+                GetWindowRect(hwnd, &rc);
+                MoveWindow(hwnd, rc.left + dx, rc.top + dy, rc.right - rc.left, rc.bottom - rc.top, TRUE);
+                ptLastMouse = ptCurrent;
+            }
+            break;
+        }
+
+        case WM_LBUTTONUP: {
+            if (bDragging) {
+                bDragging = false;
+                ReleaseCapture();
+            }
+            break;
+        }
+
+        case WM_CTLCOLOREDIT:
+        case WM_CTLCOLORSTATIC: {
+            HDC hdcStatic = (HDC)wParam;
+            SetTextColor(hdcStatic, RGB(220, 220, 220));
+            SetBkColor(hdcStatic, RGB(30, 30, 30));
+            return (LRESULT)CreateSolidBrush(RGB(30, 30, 30));
+        }
+
+        case WM_COMMAND: {
             if (HIWORD(wParam) == EN_CHANGE && (HWND)lParam == hEditInput) {
                 int length = GetWindowTextLengthA(hEditInput);
                 char* buffer = new char[length + 1];
                 GetWindowTextA(hEditInput, buffer, length + 1);
-                UpdateVisualizer(hwnd, buffer);
+                UpdateVisualizer(buffer);
                 delete[] buffer;
             }
             break;
         }
+
         case WM_PAINT: {
             PAINTSTRUCT ps;
             HDC hdc = BeginPaint(hwnd, &ps);
+            RECT rect;
+            GetClientRect(hwnd, &rect);
             
-            // Background
-            RECT fullRect; GetClientRect(hwnd, &fullRect);
-            HBRUSH bgBrush = CreateSolidBrush(RGB(15, 15, 15));
-            FillRect(hdc, &fullRect, bgBrush);
+            HBRUSH bgBrush = CreateSolidBrush(RGB(20, 20, 20));
+            FillRect(hdc, &rect, bgBrush);
             DeleteObject(bgBrush);
 
-            // Title Bar Area
-            HBRUSH barBrush = CreateSolidBrush(RGB(45, 45, 45));
-            RECT barRect = { 0, 0, fullRect.right, 55 };
-            FillRect(hdc, &barRect, barBrush);
-            DeleteObject(barBrush);
+            RECT titleRect = {0, 0, rect.right, 50};
+            HBRUSH titleBrush = CreateSolidBrush(RGB(35, 35, 35));
+            FillRect(hdc, &titleRect, titleBrush);
+            DeleteObject(titleBrush);
 
-            // Mac Buttons
-            HBRUSH rB = CreateSolidBrush(RGB(255, 95, 87)); Ellipse(hdc, 15, 20, 27, 32); DeleteObject(rB);
-            HBRUSH yB = CreateSolidBrush(RGB(254, 188, 46)); Ellipse(hdc, 35, 20, 47, 32); DeleteObject(yB);
-            HBRUSH gB = CreateSolidBrush(RGB(40, 200, 64)); Ellipse(hdc, 55, 20, 67, 32); DeleteObject(gB);
+            HBRUSH redBrush = CreateSolidBrush(RGB(255, 95, 87));
+            HBRUSH yellowBrush = CreateSolidBrush(RGB(254, 188, 46));
+            HBRUSH greenBrush = CreateSolidBrush(RGB(40, 200, 64));
+            SelectObject(hdc, GetStockObject(NULL_PEN));
 
-            // Centered Title
+            SelectObject(hdc, redBrush); Ellipse(hdc, 20, 18, 32, 30);
+            SelectObject(hdc, yellowBrush); Ellipse(hdc, 40, 18, 52, 30);
+            SelectObject(hdc, greenBrush); Ellipse(hdc, 60, 18, 72, 30);
+
+            DeleteObject(redBrush); DeleteObject(yellowBrush); DeleteObject(greenBrush);
+
+            // Centered Logo and Text
             SetTextColor(hdc, RGB(200, 200, 200));
             SetBkMode(hdc, TRANSPARENT);
-            TextOut(hdc, (fullRect.right / 2) - 50, 18, L"WAFFLE TERMINAL", 15);
+            std::wstring title = L"Waffle Studio";
+            int titleX = (rect.right / 2) - 50;
+            TextOut(hdc, titleX, 15, title.c_str(), title.length());
 
-            // Draw Grid Lines (Thin White Lines)
-            HPEN gridPen = CreatePen(PS_SOLID, 1, RGB(60, 60, 60));
-            SelectObject(hdc, gridPen);
-
-            // Vertical line splitting editor/console from tree
-            MoveToEx(hdc, 630, 55, NULL); LineTo(hdc, 630, fullRect.bottom);
-            // Horizontal line splitting editor from console
-            MoveToEx(hdc, 0, 360, NULL); LineTo(hdc, 630, 360);
-
-            // Tree Visualization Header
-            TextOut(hdc, 650, 75, L"COMPILER GUTS", 13);
-
-            if (currentAST) {
-                DrawNode(hdc, currentAST.get(), 810, 150, 70);
+            // Real Logo (logo.jpg)
+            Graphics graphics(hdc);
+            Image image(L"logo.jpg");
+            if (image.GetLastStatus() == Ok) {
+                graphics.DrawImage(&image, titleX - 45, 10, 30, 30);
+            } else {
+                // Fallback to Symbolic Logo if image not found
+                HBRUSH logoBrush = CreateSolidBrush(RGB(255, 140, 0));
+                SelectObject(hdc, logoBrush);
+                Ellipse(hdc, titleX - 45, 10, titleX - 15, 40);
+                DeleteObject(logoBrush);
             }
 
-            DeleteObject(gridPen);
             EndPaint(hwnd, &ps);
             break;
         }
-        case WM_CTLCOLOREDIT: {
-            HDC hdcStatic = (HDC)wParam;
-            SetTextColor(hdcStatic, RGB(255, 150, 50)); // Orange Terminal Text
-            SetBkColor(hdcStatic, RGB(15, 15, 15));
-            return (LRESULT)CreateSolidBrush(RGB(15, 15, 15));
-        }
-        case WM_DESTROY: PostQuitMessage(0); return 0;
+
+        case WM_DESTROY:
+            PostQuitMessage(0);
+            return 0;
     }
     return DefWindowProc(hwnd, uMsg, wParam, lParam);
 }
