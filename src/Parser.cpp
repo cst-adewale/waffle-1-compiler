@@ -62,5 +62,9 @@ std::unique_ptr<ASTNode> Parser::expression() {
 }
 
 std::unique_ptr<ASTNode> Parser::parse() {
-    return expression();
+    auto node = expression();
+    if (currentToken().type == WToken::SEMICOLON) {
+        eat(WToken::SEMICOLON);
+    }
+    return node;
 }

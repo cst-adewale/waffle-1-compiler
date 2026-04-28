@@ -27,6 +27,16 @@ Token Lexer::number() {
     return {WToken::NUMBER, result};
 }
 
+Token Lexer::identifier() {
+    std::string result = "";
+    while (std::isalnum(currentChar())) {
+        result += currentChar();
+        advance();
+    }
+    if (result == "int") return {WToken::INT, result};
+    return {WToken::IDENTIFIER, result};
+}
+
 Token Lexer::nextToken() {
     skipWhitespace();
 
@@ -40,6 +50,10 @@ Token Lexer::nextToken() {
         return number();
     }
 
+    if (std::isalpha(current)) {
+        return identifier();
+    }
+
     switch (current) {
         case '+': advance(); return {WToken::PLUS, "+"};
         case '-': advance(); return {WToken::MINUS, "-"};
@@ -47,6 +61,7 @@ Token Lexer::nextToken() {
         case '/': advance(); return {WToken::DIV, "/"};
         case '(': advance(); return {WToken::LPAREN, "("};
         case ')': advance(); return {WToken::RPAREN, ")"};
+        case ';': advance(); return {WToken::SEMICOLON, ";"};
         default:
             std::string s(1, current);
             advance();

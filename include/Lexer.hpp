@@ -16,4 +16,5 @@ private:
     void skipWhitespace();
     Token nextToken();
     Token number();
+    Token identifier();
 };
