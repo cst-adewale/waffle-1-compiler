@@ -93,22 +93,22 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
             hFont = CreateFont(18, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, ANSI_CHARSET, 
                 OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, DEFAULT_QUALITY, DEFAULT_PITCH | FF_MODERN, L"Consolas");
 
-            // 1. Input Area (Top Left)
+            // 1. Input Area (Transparent-ish looking Edit)
             hEditInput = CreateWindowEx(0, L"EDIT", L"", 
-                WS_CHILD | WS_VISIBLE | WS_BORDER | ES_MULTILINE | ES_AUTOVSCROLL,
-                20, 60, 600, 300, hwnd, NULL, NULL, NULL);
+                WS_CHILD | WS_VISIBLE | ES_MULTILINE | ES_AUTOVSCROLL,
+                30, 80, 580, 260, hwnd, NULL, NULL, NULL);
             SendMessage(hEditInput, WM_SETFONT, (WPARAM)hFont, TRUE);
 
-            // 2. Output Area (Bottom Left)
-            hOutputArea = CreateWindowEx(0, L"EDIT", L"Console Ready...", 
-                WS_CHILD | WS_VISIBLE | WS_BORDER | ES_MULTILINE | ES_READONLY | ES_AUTOVSCROLL,
-                20, 380, 600, 250, hwnd, NULL, NULL, NULL);
+            // 2. Output Area (Bottom)
+            hOutputArea = CreateWindowEx(0, L"EDIT", L"SYSTEM ONLINE...", 
+                WS_CHILD | WS_VISIBLE | ES_MULTILINE | ES_READONLY | ES_AUTOVSCROLL,
+                30, 400, 580, 230, hwnd, NULL, NULL, NULL);
             SendMessage(hOutputArea, WM_SETFONT, (WPARAM)hFont, TRUE);
 
-            // 3. Run Button (Middle)
-            hButtonRun = CreateWindow(L"BUTTON", L"RUN", 
-                WS_TABSTOP | WS_VISIBLE | WS_CHILD | BS_DEFPUSHBUTTON,
-                520, 20, 100, 30, hwnd, (HMENU)1, NULL, NULL);
+            // 3. Minimalist RUN Button
+            hButtonRun = CreateWindow(L"BUTTON", L"[ RUN ]", 
+                WS_VISIBLE | WS_CHILD | BS_FLAT,
+                480, 20, 100, 30, hwnd, (HMENU)1, NULL, NULL);
             break;
         }
         case WM_COMMAND: {
@@ -121,7 +121,7 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
                     auto tokens = lexer.tokenize();
                     Parser parser(tokens);
                     auto ast = parser.parse();
-                    std::string resultStr = "Result: " + std::to_string(ast->evaluate());
+                    std::string resultStr = "> RESULT: " + std::to_string(ast->evaluate());
                     SetWindowTextA(hOutputArea, resultStr.c_str());
                 } catch (const std::exception& e) {
                     SetWindowTextA(hOutputArea, e.what());
@@ -141,24 +141,53 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
             PAINTSTRUCT ps;
             HDC hdc = BeginPaint(hwnd, &ps);
             
-            // Mac Buttons
-            HBRUSH rB = CreateSolidBrush(RGB(255, 95, 87)); Ellipse(hdc, 20, 20, 35, 35); DeleteObject(rB);
-            HBRUSH yB = CreateSolidBrush(RGB(254, 188, 46)); Ellipse(hdc, 45, 20, 60, 35); DeleteObject(yB);
-            HBRUSH gB = CreateSolidBrush(RGB(40, 200, 64)); Ellipse(hdc, 70, 20, 85, 35); DeleteObject(gB);
+            // Background
+            RECT fullRect; GetClientRect(hwnd, &fullRect);
+            HBRUSH bgBrush = CreateSolidBrush(RGB(15, 15, 15));
+            FillRect(hdc, &fullRect, bgBrush);
+            DeleteObject(bgBrush);
 
-            // Right Panel (Graphical Tree)
-            RECT treeRect = { 640, 60, 980, 630 };
-            HBRUSH bg = CreateSolidBrush(RGB(20, 20, 20));
-            FillRect(hdc, &treeRect, bg);
-            FrameRect(hdc, &treeRect, (HBRUSH)GetStockObject(WHITE_BRUSH));
-            DeleteObject(bg);
+            // Title Bar Area
+            HBRUSH barBrush = CreateSolidBrush(RGB(45, 45, 45));
+            RECT barRect = { 0, 0, fullRect.right, 55 };
+            FillRect(hdc, &barRect, barBrush);
+            DeleteObject(barBrush);
+
+            // Mac Buttons
+            HBRUSH rB = CreateSolidBrush(RGB(255, 95, 87)); Ellipse(hdc, 15, 20, 27, 32); DeleteObject(rB);
+            HBRUSH yB = CreateSolidBrush(RGB(254, 188, 46)); Ellipse(hdc, 35, 20, 47, 32); DeleteObject(yB);
+            HBRUSH gB = CreateSolidBrush(RGB(40, 200, 64)); Ellipse(hdc, 55, 20, 67, 32); DeleteObject(gB);
+
+            // Centered Title
+            SetTextColor(hdc, RGB(200, 200, 200));
+            SetBkMode(hdc, TRANSPARENT);
+            TextOut(hdc, (fullRect.right / 2) - 50, 18, L"WAFFLE TERMINAL", 15);
+
+            // Draw Grid Lines (Thin White Lines)
+            HPEN gridPen = CreatePen(PS_SOLID, 1, RGB(60, 60, 60));
+            SelectObject(hdc, gridPen);
+
+            // Vertical line splitting editor/console from tree
+            MoveToEx(hdc, 630, 55, NULL); LineTo(hdc, 630, fullRect.bottom);
+            // Horizontal line splitting editor from console
+            MoveToEx(hdc, 0, 360, NULL); LineTo(hdc, 630, 360);
+
+            // Tree Visualization Header
+            TextOut(hdc, 650, 75, L"COMPILER GUTS", 13);
 
             if (currentAST) {
-                DrawNode(hdc, currentAST.get(), 810, 120, 80);
+                DrawNode(hdc, currentAST.get(), 810, 150, 70);
             }
 
+            DeleteObject(gridPen);
             EndPaint(hwnd, &ps);
             break;
+        }
+        case WM_CTLCOLOREDIT: {
+            HDC hdcStatic = (HDC)wParam;
+            SetTextColor(hdcStatic, RGB(255, 150, 50)); // Orange Terminal Text
+            SetBkColor(hdcStatic, RGB(15, 15, 15));
+            return (LRESULT)CreateSolidBrush(RGB(15, 15, 15));
         }
         case WM_DESTROY: PostQuitMessage(0); return 0;
     }
