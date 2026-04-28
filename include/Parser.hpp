@@ -14,7 +14,7 @@ private:
     size_t position;
 
     Token currentToken();
-    void eat(TokenType type);
+    void eat(WToken type);
 
     std::unique_ptr<ASTNode> expression();
     std::unique_ptr<ASTNode> term();

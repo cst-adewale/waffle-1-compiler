@@ -1,7 +1,7 @@
 #pragma once
 #include <string>
 
-enum class TokenType {
+enum class WToken {
     NUMBER,
     PLUS,
     MINUS,
@@ -14,6 +14,6 @@ enum class TokenType {
 };
 
 struct Token {
-    TokenType type;
+    WToken type;
     std::string value;
 };

@@ -24,7 +24,7 @@ Token Lexer::number() {
         result += currentChar();
         advance();
     }
-    return {TokenType::NUMBER, result};
+    return {WToken::NUMBER, result};
 }
 
 Token Lexer::nextToken() {
@@ -33,7 +33,7 @@ Token Lexer::nextToken() {
     char current = currentChar();
 
     if (current == '\0') {
-        return {TokenType::END_OF_FILE, ""};
+        return {WToken::END_OF_FILE, ""};
     }
 
     if (std::isdigit(current)) {
@@ -41,23 +41,23 @@ Token Lexer::nextToken() {
     }
 
     switch (current) {
-        case '+': advance(); return {TokenType::PLUS, "+"};
-        case '-': advance(); return {TokenType::MINUS, "-"};
-        case '*': advance(); return {TokenType::MUL, "*"};
-        case '/': advance(); return {TokenType::DIV, "/"};
-        case '(': advance(); return {TokenType::LPAREN, "("};
-        case ')': advance(); return {TokenType::RPAREN, ")"};
+        case '+': advance(); return {WToken::PLUS, "+"};
+        case '-': advance(); return {WToken::MINUS, "-"};
+        case '*': advance(); return {WToken::MUL, "*"};
+        case '/': advance(); return {WToken::DIV, "/"};
+        case '(': advance(); return {WToken::LPAREN, "("};
+        case ')': advance(); return {WToken::RPAREN, ")"};
         default:
             std::string s(1, current);
             advance();
-            return {TokenType::UNKNOWN, s};
+            return {WToken::UNKNOWN, s};
     }
 }
 
 std::vector<Token> Lexer::tokenize() {
     std::vector<Token> tokens;
     Token token = nextToken();
-    while (token.type != TokenType::END_OF_FILE) {
+    while (token.type != WToken::END_OF_FILE) {
         tokens.push_back(token);
         token = nextToken();
     }
