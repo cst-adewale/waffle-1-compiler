@@ -34,6 +34,8 @@ Token Lexer::identifier() {
         advance();
     }
     if (result == "int") return {WToken::INT, result};
+    if (result == "main") return {WToken::MAIN, result};
+    if (result == "return") return {WToken::RETURN, result};
     return {WToken::IDENTIFIER, result};
 }
 
@@ -55,6 +57,9 @@ Token Lexer::nextToken() {
     }
 
     switch (current) {
+        case '#': advance(); return {WToken::HASH, "#"};
+        case '{': advance(); return {WToken::LBRACE, "{"};
+        case '}': advance(); return {WToken::RBRACE, "}"};
         case '+': advance(); return {WToken::PLUS, "+"};
         case '-': advance(); return {WToken::MINUS, "-"};
         case '*': advance(); return {WToken::MUL, "*"};

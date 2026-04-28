@@ -61,10 +61,60 @@ std::unique_ptr<ASTNode> Parser::expression() {
     return node;
 }
 
-std::unique_ptr<ASTNode> Parser::parse() {
-    auto node = expression();
-    if (currentToken().type == WToken::SEMICOLON) {
-        eat(WToken::SEMICOLON);
+std::unique_ptr<ASTNode> Parser::statement() {
+    if (currentToken().type == WToken::RETURN) {
+        eat(WToken::RETURN);
+        auto expr = expression();
+        if (currentToken().type == WToken::SEMICOLON) eat(WToken::SEMICOLON);
+        return std::make_unique<ReturnNode>(std::move(expr));
     }
-    return node;
+    
+    auto expr = expression();
+    if (currentToken().type == WToken::SEMICOLON) eat(WToken::SEMICOLON);
+    return expr;
+}
+
+std::unique_ptr<ASTNode> Parser::block() {
+    auto prog = std::make_unique<ProgramNode>();
+    eat(WToken::LBRACE);
+    while (currentToken().type != WToken::RBRACE && currentToken().type != WToken::END_OF_FILE) {
+        prog->addStatement(statement());
+    }
+    eat(WToken::RBRACE);
+    return prog;
+}
+
+std::unique_ptr<ASTNode> Parser::parse() {
+    auto prog = std::make_unique<ProgramNode>();
+    
+    while (currentToken().type != WToken::END_OF_FILE) {
+        // Skip Preprocessor directives (#include ...)
+        if (currentToken().type == WToken::HASH) {
+            eat(WToken::HASH);
+            while (currentToken().type != WToken::END_OF_FILE && 
+                   currentToken().type != WToken::INT && 
+                   currentToken().type != WToken::MAIN) {
+                position++; // Just skip tokens until we hit 'int' or 'main'
+            }
+            continue;
+        }
+
+        // Handle 'int main() { ... }'
+        if (currentToken().type == WToken::INT) {
+            eat(WToken::INT);
+            if (currentToken().type == WToken::MAIN) {
+                eat(WToken::MAIN);
+                eat(WToken::LPAREN);
+                eat(WToken::RPAREN);
+                prog->addStatement(block());
+            } else {
+                // Future: handle variable declarations
+                prog->addStatement(statement());
+            }
+        } else {
+            prog->addStatement(statement());
+        }
+    }
+    
+    return prog;
 }
