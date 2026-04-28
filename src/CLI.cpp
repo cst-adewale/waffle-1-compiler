@@ -22,7 +22,7 @@ int main() {
             // Optional: Print tokens for visualization
             std::cout << "[Tokens]: ";
             for (const auto& t : tokens) {
-                if (t.type == TokenType::END_OF_FILE) break;
+                if (t.type == WToken::END_OF_FILE) break;
                 std::cout << "[" << t.value << "] ";
             }
             std::cout << std::endl;

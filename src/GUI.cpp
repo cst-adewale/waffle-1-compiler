@@ -25,7 +25,7 @@ void UpdateVisualizer(const std::string& input) {
 
         std::string tokenStr = "--- TOKENS ---\r\n";
         for (const auto& t : tokens) {
-            if (t.type == TokenType::END_OF_FILE) break;
+            if (t.type == WToken::END_OF_FILE) break;
             tokenStr += "[" + t.value + "] ";
         }
 
