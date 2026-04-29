@@ -24,4 +24,6 @@ enum class WToken {
 struct Token {
     WToken type;
     std::string value;
+    int start;
+    int length;
 };

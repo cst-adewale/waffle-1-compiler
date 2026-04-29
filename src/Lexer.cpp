@@ -19,33 +19,38 @@ void Lexer::skipWhitespace() {
 }
 
 Token Lexer::number() {
+    int start = position;
     std::string result = "";
     while (std::isdigit(currentChar())) {
         result += currentChar();
         advance();
     }
-    return {WToken::NUMBER, result};
+    return {WToken::NUMBER, result, start, (int)result.length()};
 }
 
 Token Lexer::identifier() {
+    int start = position;
     std::string result = "";
     while (std::isalnum(currentChar())) {
         result += currentChar();
         advance();
     }
-    if (result == "int") return {WToken::INT, result};
-    if (result == "main") return {WToken::MAIN, result};
-    if (result == "return") return {WToken::RETURN, result};
-    return {WToken::IDENTIFIER, result};
+    WToken type = WToken::IDENTIFIER;
+    if (result == "int") type = WToken::INT;
+    else if (result == "main") type = WToken::MAIN;
+    else if (result == "return") type = WToken::RETURN;
+    
+    return {type, result, start, (int)result.length()};
 }
 
 Token Lexer::nextToken() {
     skipWhitespace();
 
+    int start = position;
     char current = currentChar();
 
     if (current == '\0') {
-        return {WToken::END_OF_FILE, ""};
+        return {WToken::END_OF_FILE, "", start, 0};
     }
 
     if (std::isdigit(current)) {
@@ -56,22 +61,22 @@ Token Lexer::nextToken() {
         return identifier();
     }
 
+    advance();
+    std::string s(1, current);
+    WToken type = WToken::UNKNOWN;
     switch (current) {
-        case '#': advance(); return {WToken::HASH, "#"};
-        case '{': advance(); return {WToken::LBRACE, "{"};
-        case '}': advance(); return {WToken::RBRACE, "}"};
-        case '+': advance(); return {WToken::PLUS, "+"};
-        case '-': advance(); return {WToken::MINUS, "-"};
-        case '*': advance(); return {WToken::MUL, "*"};
-        case '/': advance(); return {WToken::DIV, "/"};
-        case '(': advance(); return {WToken::LPAREN, "("};
-        case ')': advance(); return {WToken::RPAREN, ")"};
-        case ';': advance(); return {WToken::SEMICOLON, ";"};
-        default:
-            std::string s(1, current);
-            advance();
-            return {WToken::UNKNOWN, s};
+        case '#': type = WToken::HASH; break;
+        case '{': type = WToken::LBRACE; break;
+        case '}': type = WToken::RBRACE; break;
+        case '+': type = WToken::PLUS; break;
+        case '-': type = WToken::MINUS; break;
+        case '*': type = WToken::MUL; break;
+        case '/': type = WToken::DIV; break;
+        case '(': type = WToken::LPAREN; break;
+        case ')': type = WToken::RPAREN; break;
+        case ';': type = WToken::SEMICOLON; break;
     }
+    return {type, s, start, 1};
 }
 
 std::vector<Token> Lexer::tokenize() {

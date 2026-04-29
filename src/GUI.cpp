@@ -12,18 +12,82 @@
 
 using namespace Gdiplus;
 
+#include <richedit.h>
+#include <tom.h>
+
 // Global variables for the UI
 HWND hEditInput;
 HWND hOutputArea;
 HWND hVisualizerArea;
 HFONT hFont;
 ULONG_PTR gdiplusToken;
+HINSTANCE hRichEditLib;
 
 LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam);
 
-void UpdateVisualizer(const std::string& input) {
+void ApplyHighlight(int start, int length, COLORREF color) {
+    CHARFORMAT2 cf;
+    ZeroMemory(&cf, sizeof(cf));
+    cf.cbSize = sizeof(cf);
+    cf.dwMask = CFM_COLOR;
+    cf.crTextColor = color;
+    
+    // Select the range
+    SendMessage(hEditInput, EM_SETSEL, start, (length == -1) ? -1 : (start + length));
+    // Apply formatting to selection
+    SendMessage(hEditInput, EM_SETCHARFORMAT, SCF_SELECTION, (LPARAM)&cf);
+}
+
+void HighlightText(const std::string& input) {
+    if (hEditInput == NULL) return;
+
+    // Save current selection to restore it later
+    CHARRANGE cr;
+    SendMessage(hEditInput, EM_EXGETSEL, 0, (LPARAM)&cr);
+
+    // Turn off redrawing to prevent flickering
+    SendMessage(hEditInput, WM_SETREDRAW, FALSE, 0);
+
+    // 1. Reset everything to default color first (Efficiently)
+    ApplyHighlight(0, -1, RGB(220, 220, 220));
+
+    try {
+        Lexer lexer(input);
+        auto tokens = lexer.tokenize();
+
+        for (const auto& t : tokens) {
+            COLORREF color = RGB(220, 220, 220); // Default Gray
+            
+            if (t.type == WToken::INT || t.type == WToken::RETURN || t.type == WToken::MAIN) {
+                color = RGB(86, 156, 214); // VS Blue
+            } else if (t.type == WToken::NUMBER) {
+                color = RGB(181, 206, 168); // VS Green-Yellow
+            } else if (t.type == WToken::HASH || t.value == "include") {
+                color = RGB(197, 134, 192); // VS Pink
+            }
+
+            if (color != RGB(220, 220, 220)) {
+                ApplyHighlight(t.start, t.length, color);
+            }
+        }
+    } catch (...) {}
+
+    // Restore selection and turn redrawing back on
+    SendMessage(hEditInput, EM_EXSETSEL, 0, (LPARAM)&cr);
+    SendMessage(hEditInput, WM_SETREDRAW, TRUE, 0);
+    
+    // Force a smooth redraw of only the edited area
+    InvalidateRect(hEditInput, NULL, FALSE);
+    UpdateWindow(hEditInput);
+}
+
+void UpdateUI(const std::string& input) {
     if (input.empty()) return;
 
+    // 1. Highlight the text in the main box
+    HighlightText(input);
+
+    // 2. Update the "Guts" Panel
     try {
         Lexer lexer(input);
         auto tokens = lexer.tokenize();
@@ -36,16 +100,24 @@ void UpdateVisualizer(const std::string& input) {
 
         Parser parser(tokens);
         auto ast = parser.parse();
-        
         std::string astStr = "\r\n\r\n--- AST TREE ---\r\n" + ast->toString();
         
         SetWindowTextA(hVisualizerArea, (tokenStr + astStr).c_str());
+
+        // 3. EVALUATE and Print to Shell
+        double result = ast->evaluate();
+        std::string shellOutput = "waffle-shell > Result: " + std::to_string((int)result);
+        SetWindowTextA(hOutputArea, shellOutput.c_str());
+
     } catch (...) {
-        // Silently ignore errors during live typing
+        // If there's a syntax error, show it in the shell
+        SetWindowTextA(hOutputArea, "waffle-shell > [Parsing...] Waiting for complete code...");
     }
 }
 
 int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR pCmdLine, int nCmdShow) {
+    hRichEditLib = LoadLibrary(L"Msftedit.dll");
+    
     GdiplusStartupInput gdiplusStartupInput;
     GdiplusStartup(&gdiplusToken, &gdiplusStartupInput, NULL);
 
@@ -91,10 +163,23 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
                                OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY, 
                                DEFAULT_PITCH | FF_MODERN, L"Consolas");
 
-            hEditInput = CreateWindowEx(0, L"EDIT", L"", 
-                WS_CHILD | WS_VISIBLE | ES_MULTILINE | ES_AUTOVSCROLL | ES_WANTRETURN,
+            // Use MSFTEDIT_CLASS for Syntax Highlighting
+            hEditInput = CreateWindowEx(0, MSFTEDIT_CLASS, L"", 
+                WS_CHILD | WS_VISIBLE | ES_MULTILINE | ES_AUTOVSCROLL | ES_WANTRETURN | ES_NOHIDESEL,
                 25, 80, 600, 300, hwnd, NULL, NULL, NULL);
             SendMessage(hEditInput, WM_SETFONT, (WPARAM)hFont, TRUE);
+            SendMessage(hEditInput, EM_SETBKGNDCOLOR, 0, RGB(30, 30, 30));
+
+            // Set DEFAULT text color to Light Gray so it's visible
+            CHARFORMAT2 cf;
+            ZeroMemory(&cf, sizeof(cf));
+            cf.cbSize = sizeof(cf);
+            cf.dwMask = CFM_COLOR;
+            cf.crTextColor = RGB(220, 220, 220);
+            SendMessage(hEditInput, EM_SETCHARFORMAT, SCF_ALL, (LPARAM)&cf);
+
+            // ENABLE "Change" notifications for RichEdit
+            SendMessage(hEditInput, EM_SETEVENTMASK, 0, ENM_CHANGE);
 
             hOutputArea = CreateWindowEx(0, L"EDIT", L"waffle-shell > Welcome to Waffle Studio\r\nType your C++ math code above...", 
                 WS_CHILD | WS_VISIBLE | ES_MULTILINE | ES_READONLY | ES_AUTOVSCROLL,
@@ -180,10 +265,16 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
 
         case WM_COMMAND: {
             if (HIWORD(wParam) == EN_CHANGE && (HWND)lParam == hEditInput) {
-                int length = GetWindowTextLengthA(hEditInput);
-                char* buffer = new char[length + 1];
-                GetWindowTextA(hEditInput, buffer, length + 1);
-                UpdateVisualizer(buffer);
+                GETTEXTEX gte;
+                gte.cb = GetWindowTextLengthA(hEditInput) + 1;
+                gte.flags = GT_DEFAULT;
+                gte.codepage = CP_ACP;
+                gte.lpDefaultChar = NULL;
+                gte.lpUsedDefChar = NULL;
+
+                char* buffer = new char[gte.cb];
+                SendMessage(hEditInput, EM_GETTEXTEX, (WPARAM)&gte, (LPARAM)buffer);
+                UpdateUI(buffer);
                 delete[] buffer;
             }
             break;
