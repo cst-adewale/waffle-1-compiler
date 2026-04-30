@@ -17,51 +17,64 @@ using namespace Gdiplus;
 #include <uxtheme.h>
 
 // Global variables for the UI
-HWND hEditInput, hOutputArea, hTokenArea, hASTArea, hLineGutter;
+HWND hEditInput, hOutputArea, hTokenArea, hLineGutter;
 HFONT hFont, hGutterFont;
 ULONG_PTR gdiplusToken;
 HINSTANCE hRichEditLib;
+std::unique_ptr<ASTNode> globalAST; 
 
-void DrawASTNode(Graphics& g, ASTNode* node, int x, int y, int xOffset, Font* font, SolidBrush* brush, Pen* pen) {
-    if (!node) return;
+LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam);
 
-    // Draw lines to children first
-    if (auto bin = dynamic_cast<BinaryOpNode*>(node)) {
-        int nextY = y + 60;
-        g.DrawLine(pen, x, y, x - xOffset, nextY);
-        g.DrawLine(pen, x, y, x + xOffset, nextY);
-        DrawASTNode(g, bin->left.get(), x - xOffset, nextY, xOffset / 2, font, brush, pen);
-        DrawASTNode(g, bin->right.get(), x + xOffset, nextY, xOffset / 2, font, brush, pen);
-    } else if (auto ret = dynamic_cast<ReturnNode*>(node)) {
-        int nextY = y + 60;
-        g.DrawLine(pen, x, y, x, nextY);
-        DrawASTNode(g, ret->expression.get(), x, nextY, xOffset / 2, font, brush, pen);
-    } else if (auto prog = dynamic_cast<ProgramNode*>(node)) {
-         // For simplicity, just draw the first statement in the visualizer for now
-         if (!prog->statements.empty()) {
-            DrawASTNode(g, prog->statements[0].get(), x, y + 40, xOffset, font, brush, pen);
-         }
-    }
-
-    // Draw the node circle
-    g.FillEllipse(brush, x - 15, y - 15, 30, 30);
-    g.DrawEllipse(pen, x - 15, y - 15, 30, 30);
-
-    // Draw the label
-    std::string label = node->toString().substr(0, 3); // Short label
-    std::wstring wLabel(label.begin(), label.end());
-    g.DrawString(wLabel.c_str(), -1, font, PointF(x - 10, y - 8), brush);
-}
+void UpdateLineNumbers() {
     int lineCount = SendMessage(hEditInput, EM_GETLINECOUNT, 0, 0);
     std::string numbers = "";
     for (int i = 1; i <= lineCount; ++i) {
         numbers += std::to_string(i) + "\r\n";
     }
     SetWindowTextA(hLineGutter, numbers.c_str());
-    
-    // Sync scrolling
     int firstLine = SendMessage(hEditInput, EM_GETFIRSTVISIBLELINE, 0, 0);
     SendMessage(hLineGutter, EM_LINESCROLL, 0, firstLine - SendMessage(hLineGutter, EM_GETFIRSTVISIBLELINE, 0, 0));
+}
+
+void DrawASTNode(Graphics& g, ASTNode* node, int x, int y, int xOffset, Font* font, SolidBrush* circleBrush, SolidBrush* textBrush, Pen* pen) {
+    if (!node) return;
+
+    // Draw branches
+    if (auto bin = dynamic_cast<BinaryOpNode*>(node)) {
+        int nextY = y + 70; // More vertical gap
+        g.DrawLine(pen, x, y, x - xOffset, nextY);
+        g.DrawLine(pen, x, y, x + xOffset, nextY);
+        DrawASTNode(g, bin->left.get(), x - xOffset, nextY, xOffset / 2, font, circleBrush, textBrush, pen);
+        DrawASTNode(g, bin->right.get(), x + xOffset, nextY, xOffset / 2, font, circleBrush, textBrush, pen);
+    } else if (auto ret = dynamic_cast<ReturnNode*>(node)) {
+        int nextY = y + 70;
+        g.DrawLine(pen, x, y, x, nextY);
+        DrawASTNode(g, ret->expression.get(), x, nextY, xOffset / 2, font, circleBrush, textBrush, pen);
+    } else if (auto prog = dynamic_cast<ProgramNode*>(node)) {
+         if (!prog->statements.empty()) {
+            DrawASTNode(g, prog->statements[0].get(), x, y + 40, xOffset, font, circleBrush, textBrush, pen);
+         }
+    }
+
+    // Draw the node circle
+    g.FillEllipse(circleBrush, x - 20, y - 20, 40, 40); // Bigger circle
+    g.DrawEllipse(pen, x - 20, y - 20, 40, 40);
+
+    // Draw label in WHITE
+    std::string label = "";
+    if (auto bin = dynamic_cast<BinaryOpNode*>(node)) label = bin->op;
+    else if (auto num = dynamic_cast<NumberNode*>(node)) {
+        label = std::to_string((int)num->value);
+        if (label.length() > 3) label = label.substr(0, 3);
+    }
+    else if (dynamic_cast<ReturnNode*>(node)) label = "RET";
+    else label = "?";
+
+    std::wstring wLabel(label.begin(), label.end());
+    RectF textRect(x - 18, y - 8, 36, 16);
+    StringFormat format;
+    format.SetAlignment(StringAlignmentCenter);
+    g.DrawString(wLabel.c_str(), -1, font, textRect, &format, textBrush);
 }
 
 void ApplyHighlight(int start, int length, COLORREF color) {
@@ -70,77 +83,42 @@ void ApplyHighlight(int start, int length, COLORREF color) {
     cf.cbSize = sizeof(cf);
     cf.dwMask = CFM_COLOR;
     cf.crTextColor = color;
-    
-    // Select the range
     SendMessage(hEditInput, EM_SETSEL, start, (length == -1) ? -1 : (start + length));
-    // Apply formatting to selection
     SendMessage(hEditInput, EM_SETCHARFORMAT, SCF_SELECTION, (LPARAM)&cf);
 }
 
 void HighlightText(const std::string& input) {
     if (hEditInput == NULL) return;
-
-    // Save current selection to restore it later
     CHARRANGE cr;
     SendMessage(hEditInput, EM_EXGETSEL, 0, (LPARAM)&cr);
-
-    // Turn off redrawing to prevent flickering
     SendMessage(hEditInput, WM_SETREDRAW, FALSE, 0);
-
-    // 1. Reset everything to default color first (Efficiently)
     ApplyHighlight(0, -1, RGB(220, 220, 220));
 
     try {
         Lexer lexer(input);
         auto tokens = lexer.tokenize();
-
         for (const auto& t : tokens) {
-            COLORREF color = RGB(220, 220, 220); // Default Gray
-            
-            if (t.type == WToken::INT || t.type == WToken::RETURN || t.type == WToken::MAIN) {
-                color = RGB(86, 156, 214); // VS Blue
-            } else if (t.type == WToken::NUMBER) {
-                color = RGB(181, 206, 168); // VS Green-Yellow
-            } else if (t.type == WToken::HASH || t.value == "include") {
-                color = RGB(197, 134, 192); // VS Pink
-            }
-
-            if (color != RGB(220, 220, 220)) {
-                ApplyHighlight(t.start, t.length, color);
-            }
+            COLORREF color = RGB(220, 220, 220);
+            if (t.type == WToken::INT || t.type == WToken::RETURN || t.type == WToken::MAIN) color = RGB(86, 156, 214);
+            else if (t.type == WToken::NUMBER) color = RGB(181, 206, 168);
+            else if (t.type == WToken::HASH || t.value == "include") color = RGB(197, 134, 192);
+            if (color != RGB(220, 220, 220)) ApplyHighlight(t.start, t.length, color);
         }
     } catch (...) {}
 
-    // Restore selection and turn redrawing back on
     SendMessage(hEditInput, EM_EXSETSEL, 0, (LPARAM)&cr);
     SendMessage(hEditInput, WM_SETREDRAW, TRUE, 0);
-    
-    // Force a smooth redraw of only the edited area
     InvalidateRect(hEditInput, NULL, FALSE);
     UpdateWindow(hEditInput);
 }
 
-// Global variables for the UI
-HWND hEditInput, hOutputArea, hTokenArea, hASTArea, hLineGutter;
-HFONT hFont, hGutterFont;
-ULONG_PTR gdiplusToken;
-HINSTANCE hRichEditLib;
-std::unique_ptr<ProgramNode> globalAST; // Store for drawing
-
-LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam);
-
-// ... DrawASTNode logic ...
-
-void UpdateUI(const std::string& input) {
+void UpdateUI(HWND hwnd, const std::string& input) {
     HighlightText(input);
     UpdateLineNumbers();
-
     if (input.empty()) return;
     try {
         Lexer lexer(input);
         auto tokens = lexer.tokenize();
-
-        // Update Tokens panel
         std::string tokenStr = "--- TOKENS ---\r\n";
         for (const auto& t : tokens) {
             if (t.type == WToken::END_OF_FILE) break;
@@ -148,18 +126,13 @@ void UpdateUI(const std::string& input) {
         }
         SetWindowTextA(hTokenArea, tokenStr.c_str());
 
-        // Parse and Store for Visual Tree
         Parser parser(tokens);
         globalAST = parser.parse();
-        
-        // Trigger a Redraw for the Tree Diagram
-        InvalidateRect(GetParent(hASTArea), NULL, TRUE);
+        InvalidateRect(hwnd, NULL, TRUE);
 
-        // 3. EVALUATE and Print to Shell
         double result = globalAST->evaluate();
         std::string shellOutput = "waffle-shell > Result: " + std::to_string((int)result);
         SetWindowTextA(hOutputArea, shellOutput.c_str());
-
     } catch (...) {
         SetWindowTextA(hOutputArea, "waffle-shell > [Parsing...] Waiting for complete code...");
     }
@@ -211,17 +184,13 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
 
     switch (uMsg) {
         case WM_CREATE: {
-            hGutterFont = CreateFont(16, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, ANSI_CHARSET, 
-                                OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY, 
-                                DEFAULT_PITCH | FF_MODERN, L"Consolas");
-
-            // Line Number Gutter (Moved closer to edge)
+            // Line Number Gutter (Synced Font)
             hLineGutter = CreateWindowEx(0, L"EDIT", L"1", 
                 WS_CHILD | WS_VISIBLE | ES_MULTILINE | ES_READONLY | ES_RIGHT,
                 10, 80, 35, 300, hwnd, NULL, NULL, NULL);
-            SendMessage(hLineGutter, WM_SETFONT, (WPARAM)hGutterFont, TRUE);
+            SendMessage(hLineGutter, WM_SETFONT, (WPARAM)hFont, TRUE);
 
-            // Main Input (No Wrap + Scrollbars)
+            // Main Input
             hEditInput = CreateWindowEx(0, MSFTEDIT_CLASS, L"", 
                 WS_CHILD | WS_VISIBLE | ES_MULTILINE | ES_AUTOVSCROLL | ES_AUTOHSCROLL | WS_VSCROLL | WS_HSCROLL | ES_WANTRETURN | ES_NOHIDESEL,
                 45, 80, 580, 300, hwnd, NULL, NULL, NULL);
@@ -264,12 +233,6 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
             SendMessage(hTokenArea, WM_SETFONT, (WPARAM)hFont, TRUE);
             SendMessage(hTokenArea, EM_SETBKGNDCOLOR, 0, RGB(35, 35, 35));
 
-            hASTArea = CreateWindowEx(0, MSFTEDIT_CLASS, L"--- AST TREE ---", 
-                WS_CHILD | WS_VISIBLE | ES_MULTILINE | ES_READONLY | ES_AUTOVSCROLL | WS_VSCROLL,
-                650, 370, 310, 280, hwnd, NULL, NULL, NULL);
-            SendMessage(hASTArea, WM_SETFONT, (WPARAM)hFont, TRUE);
-            SendMessage(hASTArea, EM_SETBKGNDCOLOR, 0, RGB(35, 35, 35));
-
             // SET ALL TEXT TO LIGHT GRAY
             CHARFORMAT2 cfAll;
             ZeroMemory(&cfAll, sizeof(cfAll));
@@ -278,13 +241,11 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
             cfAll.crTextColor = RGB(220, 220, 220);
             SendMessage(hOutputArea, EM_SETCHARFORMAT, SCF_ALL, (LPARAM)&cfAll);
             SendMessage(hTokenArea, EM_SETCHARFORMAT, SCF_ALL, (LPARAM)&cfAll);
-            SendMessage(hASTArea, EM_SETCHARFORMAT, SCF_ALL, (LPARAM)&cfAll);
 
             // Apply Dark Scrollbars
             SetWindowTheme(hEditInput, L"Explorer", NULL);
             SetWindowTheme(hOutputArea, L"Explorer", NULL);
             SetWindowTheme(hTokenArea, L"Explorer", NULL);
-            SetWindowTheme(hASTArea, L"Explorer", NULL);
             break;
         }
 
@@ -321,10 +282,6 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
             MoveWindow(hTokenArea, SIDEBAR_WIDTH + leftPanelWidth + GAP, TOP_OFFSET, rightPanelWidth - GAP, gutsHeight - GAP, TRUE);
             RECT tokenRc; SetRect(&tokenRc, 10, 10, rightPanelWidth - 20, gutsHeight - 20);
             SendMessage(hTokenArea, EM_SETRECT, 0, (LPARAM)&tokenRc);
-
-            MoveWindow(hASTArea, SIDEBAR_WIDTH + leftPanelWidth + GAP, TOP_OFFSET + gutsHeight, rightPanelWidth - GAP, gutsHeight, TRUE);
-            RECT astRc; SetRect(&astRc, 10, 10, rightPanelWidth - 20, gutsHeight - 20);
-            SendMessage(hASTArea, EM_SETRECT, 0, (LPARAM)&astRc);
 
             InvalidateRect(hwnd, NULL, TRUE);
             break;
@@ -401,7 +358,7 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
 
                 char* buffer = new char[gte.cb];
                 SendMessage(hEditInput, EM_GETTEXTEX, (WPARAM)&gte, (LPARAM)buffer);
-                UpdateUI(buffer);
+                UpdateUI(hwnd, buffer);
                 delete[] buffer;
             }
             if (HIWORD(wParam) == EN_VSCROLL && (HWND)lParam == hEditInput) {
@@ -456,13 +413,27 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
             int gutsH = (rect.bottom - TOP_O - GAP) / 2;
             // Token Card
             RoundRect(hdc, SIDE_W + leftW + GAP - 5, TOP_O - 5, rect.right - GAP + 5, TOP_O + gutsH - GAP + 5, 10, 10);
-            // AST Card
+            // AST Card (Visual Tree Canvas)
             RoundRect(hdc, SIDE_W + leftW + GAP - 5, TOP_O + gutsH - 5, rect.right - GAP + 5, rect.bottom - GAP + 5, 10, 10);
 
             DeleteObject(cardBg);
             DeleteObject(cardBorder);
             
             Graphics g(hdc);
+            
+            // Draw Visual AST Tree
+            if (globalAST) {
+                Font astFont(L"Arial", 10);
+                SolidBrush nodeBrush(Color(255, 86, 156, 214)); // VS Blue for nodes
+                SolidBrush whiteBrush(Color(255, 255, 255, 255)); // White for text
+                Pen branchPen(Color(255, 100, 100, 100), 2);
+                
+                int treeCenterX = SIDE_W + leftW + GAP + (rightW / 2);
+                int treeTopY = TOP_O + gutsH + 40;
+                
+                DrawASTNode(g, globalAST.get(), treeCenterX, treeTopY, rightW / 3, &astFont, &nodeBrush, &whiteBrush, &branchPen);
+            }
+
             Pen iconPen(Color(180, 180, 180), 2);
 
             // Real File Icon (file_icon.png)
