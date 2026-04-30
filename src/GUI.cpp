@@ -23,7 +23,7 @@ using namespace Gdiplus;
 
 // Global variables for the UI
 HWND hEditInput, hOutputArea, hTokenArea, hLineGutter, hASTArea;
-HFONT hFont, hGutterFont, hNavFont;
+HFONT hFont, hGutterFont;
 ULONG_PTR gdiplusToken;
 HINSTANCE hRichEditLib;
 std::unique_ptr<ASTNode> globalAST; 
@@ -42,6 +42,18 @@ void SetAppIcon(HWND hwnd) {
         
         delete bitmap;
     }
+}
+
+WNDPROC oldShellProc;
+LRESULT CALLBACK ShellProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
+    if (uMsg == WM_CHAR && wParam == VK_RETURN) {
+        LRESULT res = CallWindowProc(oldShellProc, hwnd, uMsg, wParam, lParam);
+        int len = GetWindowTextLength(hwnd);
+        SendMessage(hwnd, EM_SETSEL, len, len);
+        SendMessage(hwnd, EM_REPLACESEL, 0, (LPARAM)L"waffle-shell > ");
+        return res;
+    }
+    return CallWindowProc(oldShellProc, hwnd, uMsg, wParam, lParam);
 }
 
 void UpdateLineNumbers() {
@@ -379,12 +391,15 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
 
             SendMessage(hLineGutter, WM_SETFONT, (WPARAM)hFont, TRUE);
 
-            hOutputArea = CreateWindowEx(0, MSFTEDIT_CLASS, L"waffle-shell > Welcome to Waffle Studio", 
+            hOutputArea = CreateWindowEx(0, MSFTEDIT_CLASS, L"waffle-shell > Welcome to Waffle Studio\r\nwaffle-shell > ", 
                 WS_CHILD | WS_VISIBLE | ES_MULTILINE | ES_AUTOVSCROLL,
                 75, 400, 600, 250, hwnd, NULL, NULL, NULL);
             SendMessage(hOutputArea, WM_SETFONT, (WPARAM)hFont, TRUE);
             SendMessage(hOutputArea, EM_SETBKGNDCOLOR, 0, RGB(35, 35, 35));
             SendMessage(hOutputArea, EM_SETEVENTMASK, 0, ENM_CHANGE);
+            
+            // Subclass the Shell to handle Enter key
+            oldShellProc = (WNDPROC)SetWindowLongPtr(hOutputArea, GWLP_WNDPROC, (LONG_PTR)ShellProc);
 
             hTokenArea = CreateWindowEx(0, MSFTEDIT_CLASS, L"--- TOKENS ---", 
                 WS_CHILD | WS_VISIBLE | ES_MULTILINE | ES_READONLY | ES_AUTOVSCROLL | WS_VSCROLL,
