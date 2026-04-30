@@ -16,6 +16,7 @@ using namespace Gdiplus;
 #include <tom.h>
 #include <uxtheme.h>
 #include <dwmapi.h>
+#include <shobjidl.h>
 
 #ifndef DWMWA_USE_IMMERSIVE_DARK_MODE
 #define DWMWA_USE_IMMERSIVE_DARK_MODE 20
@@ -83,6 +84,44 @@ void DrawASTNode(Graphics& g, ASTNode* node, int x, int y, int xOffset, Font* fo
     StringFormat format;
     format.SetAlignment(StringAlignmentCenter);
     g.DrawString(wLabel.c_str(), -1, font, textRect, &format, textBrush);
+}
+
+void OpenFolderPicker(HWND hwnd) {
+    IFileOpenDialog *pFileOpen;
+    HRESULT hr = CoCreateInstance(CLSID_FileOpenDialog, NULL, CLSCTX_ALL, 
+                                  IID_IFileOpenDialog, reinterpret_cast<void**>(&pFileOpen));
+    if (SUCCEEDED(hr)) {
+        DWORD dwOptions;
+        if (SUCCEEDED(pFileOpen->GetOptions(&dwOptions))) {
+            pFileOpen->SetOptions(dwOptions | FOS_PICKFOLDERS | FOS_FORCEFILESYSTEM);
+        }
+        hr = pFileOpen->Show(hwnd);
+        if (SUCCEEDED(hr)) {
+            IShellItem *pItem;
+            hr = pFileOpen->GetResult(&pItem);
+            if (SUCCEEDED(hr)) {
+                PWSTR pszFilePath;
+                hr = pItem->GetDisplayName(SIGDN_FILESYSPATH, &pszFilePath);
+                if (SUCCEEDED(hr)) {
+                    int size_needed = WideCharToMultiByte(CP_UTF8, 0, pszFilePath, -1, NULL, 0, NULL, NULL);
+                    std::string narrowPath(size_needed, 0);
+                    WideCharToMultiByte(CP_UTF8, 0, pszFilePath, -1, &narrowPath[0], size_needed, NULL, NULL);
+                    if(!narrowPath.empty() && narrowPath.back() == '\0') narrowPath.pop_back();
+
+                    char shellBuf[8192];
+                    GetWindowTextA(hOutputArea, shellBuf, 8192);
+                    std::string shellOutput = std::string(shellBuf) + "\r\nvanilla-shell > Selected folder: " + narrowPath + "\r\nvanilla-shell > ";
+                    SetWindowTextA(hOutputArea, shellOutput.c_str());
+                    SendMessage(hOutputArea, EM_SETSEL, -1, -1);
+                    SendMessage(hOutputArea, EM_SCROLLCARET, 0, 0);
+
+                    CoTaskMemFree(pszFilePath);
+                }
+                pItem->Release();
+            }
+        }
+        pFileOpen->Release();
+    }
 }
 
 static int scrollPosX = 0, scrollPosY = 0;
@@ -202,7 +241,17 @@ void ExecuteCode(HWND hwnd) {
 
     input.erase(0, input.find_first_not_of(" \t\r\n"));
 
-    if (input.substr(0, 5) != "solve") {
+    if (input.empty()) {
+        char shellBuf[4096];
+        GetWindowTextA(hOutputArea, shellBuf, 4096);
+        std::string shellOutput = std::string(shellBuf) + "\r\nvanilla-shell > ";
+        SetWindowTextA(hOutputArea, shellOutput.c_str());
+        SendMessage(hOutputArea, EM_SETSEL, -1, -1);
+        SendMessage(hOutputArea, EM_SCROLLCARET, 0, 0);
+        return;
+    }
+
+    if (input.length() < 5 || input.substr(0, 5) != "solve") {
         char shellBuf[4096];
         GetWindowTextA(hOutputArea, shellBuf, 4096);
         std::string shellOutput = std::string(shellBuf) + "\r\nvanilla-shell > [Error] You forgot to add the 'solve' keyword!\r\nvanilla-shell > ";
@@ -262,6 +311,7 @@ void ExecuteCode(HWND hwnd) {
 }
 
 int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR pCmdLine, int nCmdShow) {
+    CoInitializeEx(NULL, COINIT_APARTMENTTHREADED);
     hRichEditLib = LoadLibrary(L"Msftedit.dll");
     
     GdiplusStartupInput gdiplusStartupInput;
@@ -304,6 +354,7 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR pCmdLine
     }
 
     GdiplusShutdown(gdiplusToken);
+    CoUninitialize();
     return 0;
 }
 
@@ -341,11 +392,8 @@ LRESULT CALLBACK ShellProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
             }
         }
         else if (wParam == VK_RETURN) {
-            LRESULT res = CallWindowProc(oldShellProc, hwnd, uMsg, wParam, lParam);
-            int len = GetWindowTextLength(hwnd);
-            SendMessage(hwnd, EM_SETSEL, len, len);
-            SendMessage(hwnd, EM_REPLACESEL, 0, (LPARAM)L"vanilla-shell > ");
-            return res;
+            ExecuteCode(GetParent(hwnd));
+            return 0;
         }
     }
     return CallWindowProc(oldShellProc, hwnd, uMsg, wParam, lParam);
@@ -438,6 +486,10 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
                 }
             }
 
+            if (x >= 12 && x <= 37 && y >= 72 && y <= 97) {
+                OpenFolderPicker(hwnd);
+            }
+
             bDragging = true;
             ptLastMouse.x = x;
             ptLastMouse.y = y;
@@ -464,6 +516,15 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
             if (bDragging) {
                 bDragging = false;
                 ReleaseCapture();
+            }
+            break;
+        }
+
+        case WM_COMMAND: {
+            if (HIWORD(wParam) == EN_CHANGE && (HWND)lParam == hOutputArea) {
+                SendMessage(hOutputArea, EM_SETEVENTMASK, 0, 0);
+                HighlightShell();
+                SendMessage(hOutputArea, EM_SETEVENTMASK, 0, ENM_CHANGE);
             }
             break;
         }
