@@ -110,7 +110,7 @@ void OpenFolderPicker(HWND hwnd) {
 
                     char shellBuf[8192];
                     GetWindowTextA(hOutputArea, shellBuf, 8192);
-                    std::string shellOutput = std::string(shellBuf) + "\r\nvanilla-shell > Selected folder: " + narrowPath + "\r\nvanilla-shell > ";
+                    std::string shellOutput = std::string(shellBuf) + "\r\nvanilla-shell >> Selected folder: " + narrowPath + "\r\nvanilla-shell >> ";
                     SetWindowTextA(hOutputArea, shellOutput.c_str());
                     SendMessage(hOutputArea, EM_SETSEL, -1, -1);
                     SendMessage(hOutputArea, EM_SCROLLCARET, 0, 0);
@@ -234,9 +234,9 @@ void ExecuteCode(HWND hwnd) {
     lineBuf[len] = '\0';
     std::string input = lineBuf;
 
-    size_t pos = input.find("vanilla-shell > ");
+    size_t pos = input.find("vanilla-shell >> ");
     if (pos != std::string::npos) {
-        input = input.substr(pos + 16);
+        input = input.substr(pos + 17);
     }
 
     input.erase(0, input.find_first_not_of(" \t\r\n"));
@@ -244,7 +244,7 @@ void ExecuteCode(HWND hwnd) {
     if (input.empty()) {
         char shellBuf[4096];
         GetWindowTextA(hOutputArea, shellBuf, 4096);
-        std::string shellOutput = std::string(shellBuf) + "\r\nvanilla-shell > ";
+        std::string shellOutput = std::string(shellBuf) + "\r\nvanilla-shell >> ";
         SetWindowTextA(hOutputArea, shellOutput.c_str());
         SendMessage(hOutputArea, EM_SETSEL, -1, -1);
         SendMessage(hOutputArea, EM_SCROLLCARET, 0, 0);
@@ -254,7 +254,7 @@ void ExecuteCode(HWND hwnd) {
     if (input.length() < 5 || input.substr(0, 5) != "solve") {
         char shellBuf[4096];
         GetWindowTextA(hOutputArea, shellBuf, 4096);
-        std::string shellOutput = std::string(shellBuf) + "\r\nvanilla-shell > [Error] You forgot to add the 'solve' keyword!\r\nvanilla-shell > ";
+        std::string shellOutput = std::string(shellBuf) + "\r\nvanilla-shell >> [Error] You forgot to add the 'solve' keyword!\r\nvanilla-shell >> ";
         SetWindowTextA(hOutputArea, shellOutput.c_str());
         HighlightShell();
         
@@ -293,7 +293,7 @@ void ExecuteCode(HWND hwnd) {
         double result = globalAST->evaluate();
         char shellBuf[4096];
         GetWindowTextA(hOutputArea, shellBuf, 4096);
-        std::string shellOutput = std::string(shellBuf) + "\r\nvanilla-shell > Result: " + std::to_string(result) + "\r\nvanilla-shell > ";
+        std::string shellOutput = std::string(shellBuf) + "\r\nvanilla-shell >> Result: " + std::to_string(result) + "\r\nvanilla-shell >> ";
         SetWindowTextA(hOutputArea, shellOutput.c_str());
         HighlightShell();
 
@@ -302,7 +302,7 @@ void ExecuteCode(HWND hwnd) {
     } catch (...) {
         char shellBuf[4096];
         GetWindowTextA(hOutputArea, shellBuf, 4096);
-        std::string shellOutput = std::string(shellBuf) + "\r\nvanilla-shell > [Error] Syntax Error in expression!\r\nvanilla-shell > ";
+        std::string shellOutput = std::string(shellBuf) + "\r\nvanilla-shell >> [Error] Syntax Error in expression!\r\nvanilla-shell >> ";
         SetWindowTextA(hOutputArea, shellOutput.c_str());
         HighlightShell();
         SendMessage(hOutputArea, EM_SETSEL, -1, -1);
@@ -367,7 +367,7 @@ LRESULT CALLBACK ShellProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
             long lineIndex = SendMessage(hwnd, EM_EXLINEFROMCHAR, 0, startChar);
             long lineStartChar = SendMessage(hwnd, EM_LINEINDEX, lineIndex, 0);
             
-            if (startChar == endChar && startChar - lineStartChar <= 16) {
+            if (startChar == endChar && startChar - lineStartChar <= 17) {
                 return 0; // block backspace and left arrow
             }
         }
@@ -376,7 +376,11 @@ LRESULT CALLBACK ShellProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
             SendMessage(hwnd, EM_GETSEL, (WPARAM)&startChar, (LPARAM)&endChar);
             long lineIndex = SendMessage(hwnd, EM_EXLINEFROMCHAR, 0, startChar);
             long lineStartChar = SendMessage(hwnd, EM_LINEINDEX, lineIndex, 0);
-            SendMessage(hwnd, EM_SETSEL, lineStartChar + 16, lineStartChar + 16);
+            SendMessage(hwnd, EM_SETSEL, lineStartChar + 17, lineStartChar + 17);
+            return 0;
+        }
+        else if (wParam == VK_RETURN) {
+            ExecuteCode(GetParent(hwnd));
             return 0;
         }
     }
@@ -387,12 +391,11 @@ LRESULT CALLBACK ShellProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
             long lineIndex = SendMessage(hwnd, EM_EXLINEFROMCHAR, 0, startChar);
             long lineStartChar = SendMessage(hwnd, EM_LINEINDEX, lineIndex, 0);
             
-            if (startChar == endChar && startChar - lineStartChar <= 16) {
+            if (startChar == endChar && startChar - lineStartChar <= 17) {
                 return 0; // block backspace
             }
         }
         else if (wParam == VK_RETURN) {
-            ExecuteCode(GetParent(hwnd));
             return 0;
         }
     }
@@ -407,7 +410,7 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
         case WM_CREATE: {
             SetAppIcon(hwnd);
 
-            hOutputArea = CreateWindowEx(0, MSFTEDIT_CLASS, L"vanilla-shell > enter your mathematical expression bellow\r\nvanilla-shell > ", 
+            hOutputArea = CreateWindowEx(0, MSFTEDIT_CLASS, L"vanilla-shell >> enter your mathematical expression bellow\r\nvanilla-shell >> ", 
                 WS_CHILD | WS_VISIBLE | ES_MULTILINE | ES_AUTOVSCROLL,
                 50, 60, 600, 600, hwnd, NULL, NULL, NULL);
             SendMessage(hOutputArea, WM_SETFONT, (WPARAM)hFont, TRUE);
