@@ -211,15 +211,26 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
             // Add Padding (Left Margin) so text isn't against the edge
             SendMessage(hEditInput, EM_SETMARGINS, EC_LEFTMARGIN, MAKELONG(15, 0));
 
-            hOutputArea = CreateWindowEx(0, L"EDIT", L"waffle-shell > Welcome to Waffle Studio\r\nType your C++ math code above...", 
+            hOutputArea = CreateWindowEx(0, MSFTEDIT_CLASS, L"waffle-shell > Welcome to Waffle Studio\r\nType your C++ math code above...", 
                 WS_CHILD | WS_VISIBLE | ES_MULTILINE | ES_READONLY | ES_AUTOVSCROLL,
-                25, 400, 600, 250, hwnd, NULL, NULL, NULL);
+                75, 400, 600, 250, hwnd, NULL, NULL, NULL);
             SendMessage(hOutputArea, WM_SETFONT, (WPARAM)hFont, TRUE);
+            SendMessage(hOutputArea, EM_SETBKGNDCOLOR, 0, RGB(35, 35, 35));
 
-            hVisualizerArea = CreateWindowEx(0, L"EDIT", L"--- COMPILER GUTS ---", 
+            hVisualizerArea = CreateWindowEx(0, MSFTEDIT_CLASS, L"--- COMPILER GUTS ---", 
                 WS_CHILD | WS_VISIBLE | ES_MULTILINE | ES_READONLY | ES_AUTOVSCROLL,
                 650, 80, 310, 570, hwnd, NULL, NULL, NULL);
             SendMessage(hVisualizerArea, WM_SETFONT, (WPARAM)hFont, TRUE);
+            SendMessage(hVisualizerArea, EM_SETBKGNDCOLOR, 0, RGB(35, 35, 35));
+
+            // SET ALL TEXT TO LIGHT GRAY
+            CHARFORMAT2 cfAll;
+            ZeroMemory(&cfAll, sizeof(cfAll));
+            cfAll.cbSize = sizeof(cfAll);
+            cfAll.dwMask = CFM_COLOR;
+            cfAll.crTextColor = RGB(220, 220, 220);
+            SendMessage(hOutputArea, EM_SETCHARFORMAT, SCF_ALL, (LPARAM)&cfAll);
+            SendMessage(hVisualizerArea, EM_SETCHARFORMAT, SCF_ALL, (LPARAM)&cfAll);
             break;
         }
 
@@ -227,26 +238,35 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
             int width = LOWORD(lParam);
             int height = HIWORD(lParam);
 
-            int sidebarWidth = 50;
-            int leftPanelWidth = (width * 60) / 100;
-            int rightPanelWidth = (width * 30) / 100;
-            int inputHeight = (height * 50) / 100;
-            int outputHeight = (height * 35) / 100;
+            const int GAP = 5;
+            const int TOP_OFFSET = 50 + GAP;
+            const int SIDEBAR_WIDTH = 50 + GAP;
 
-            // Shifted right by sidebarWidth
-            MoveWindow(hLineGutter, sidebarWidth + 10, 80, 35, inputHeight, TRUE);
-            MoveWindow(hEditInput, sidebarWidth + 45, 80, leftPanelWidth - 45, inputHeight, TRUE);
+            int leftPanelWidth = (width * 65) / 100;
+            int rightPanelWidth = width - leftPanelWidth - SIDEBAR_WIDTH - GAP;
+            int inputHeight = (height * 60) / 100;
+            int outputHeight = height - inputHeight - TOP_OFFSET - GAP;
+
+            // 1. Gutter and Editor (Aligned with Left Nav and Top Nav)
+            MoveWindow(hLineGutter, SIDEBAR_WIDTH, TOP_OFFSET, 35, inputHeight, TRUE);
+            MoveWindow(hEditInput, SIDEBAR_WIDTH + 35, TOP_OFFSET, leftPanelWidth - 35, inputHeight, TRUE);
             
-            RECT rc;
-            SetRect(&rc, 5, 10, leftPanelWidth - 50, inputHeight);
+            RECT rc; SetRect(&rc, 5, 10, leftPanelWidth - 40, inputHeight);
             SendMessage(hEditInput, EM_SETRECT, 0, (LPARAM)&rc);
 
-            RECT gutterRc;
-            SetRect(&gutterRc, 0, 10, 35, inputHeight);
+            RECT gutterRc; SetRect(&gutterRc, 0, 10, 35, inputHeight);
             SendMessage(hLineGutter, EM_SETRECT, 0, (LPARAM)&gutterRc);
 
-            MoveWindow(hOutputArea, sidebarWidth + 25, 80 + inputHeight + 20, leftPanelWidth - 25, outputHeight, TRUE);
-            MoveWindow(hVisualizerArea, sidebarWidth + leftPanelWidth + 20, 80, rightPanelWidth, height - 100, TRUE);
+            // 2. Shell (Below Editor, Aligned with Editor Left/Right)
+            MoveWindow(hOutputArea, SIDEBAR_WIDTH, TOP_OFFSET + inputHeight + GAP, leftPanelWidth, outputHeight - GAP, TRUE);
+            RECT shellRc; SetRect(&shellRc, 10, 10, leftPanelWidth - 10, outputHeight);
+            SendMessage(hOutputArea, EM_SETRECT, 0, (LPARAM)&shellRc);
+
+            // 3. Guts (Right of Editor/Shell, Aligned with Top Nav and Right Edge)
+            MoveWindow(hVisualizerArea, SIDEBAR_WIDTH + leftPanelWidth + GAP, TOP_OFFSET, rightPanelWidth - GAP, height - TOP_OFFSET - GAP, TRUE);
+            RECT gutsRc; SetRect(&gutsRc, 10, 10, rightPanelWidth - 20, height - TOP_OFFSET - 20);
+            SendMessage(hVisualizerArea, EM_SETRECT, 0, (LPARAM)&gutsRc);
+
             InvalidateRect(hwnd, NULL, TRUE);
             break;
         }
@@ -349,24 +369,33 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
             FillRect(hdc, &sidebarRect, sidebarBrush);
             DeleteObject(sidebarBrush);
 
-            // 2. Draw Code Editor "Card"
-            // We'll draw a slightly lighter area behind the gutter and editor
-            int cardLeft = 60; // sidebarWidth + margin
-            int cardTop = 80;
-            int cardRight = (rect.right * 60 / 100) + 50;
-            int cardBottom = 80 + (rect.bottom * 50 / 100);
+            // 2. Draw Cards based on Grid
+            const int GAP = 5;
+            const int TOP_O = 50 + GAP;
+            const int SIDE_W = 50 + GAP;
+
+            HBRUSH cardBg = CreateSolidBrush(RGB(35, 35, 35));
+            HPEN cardBorder = CreatePen(PS_SOLID, 1, RGB(60, 60, 60));
+            SelectObject(hdc, cardBg); SelectObject(hdc, cardBorder);
+
+            // Calculate Grid Areas (Same as WM_SIZE)
+            int leftW = (rect.right * 65) / 100;
+            int rightW = rect.right - leftW - SIDE_W - GAP;
+            int inH = (rect.bottom * 60) / 100;
+            int outH = rect.bottom - inH - TOP_O - GAP;
+
+            // Main Editor Card
+            RoundRect(hdc, SIDE_W - 5, TOP_O - 5, SIDE_W + leftW + 5, TOP_O + inH + 5, 10, 10);
             
-            RECT cardRect = {cardLeft - 5, cardTop - 5, cardRight + 5, cardBottom + 5};
-            HBRUSH cardBg = CreateSolidBrush(RGB(35, 35, 35)); // Slightly lighter than window bg
-            HPEN cardBorder = CreatePen(PS_SOLID, 1, RGB(60, 60, 60)); // Subtle border
-            
-            SelectObject(hdc, cardBg);
-            SelectObject(hdc, cardBorder);
-            RoundRect(hdc, cardRect.left, cardRect.top, cardRect.right, cardRect.bottom, 10, 10);
-            
+            // Shell Card
+            RoundRect(hdc, SIDE_W - 5, TOP_O + inH + GAP - 5, SIDE_W + leftW + 5, rect.bottom - GAP + 5, 10, 10);
+
+            // Guts Card
+            RoundRect(hdc, SIDE_W + leftW + GAP - 5, TOP_O - 5, rect.right - GAP + 5, rect.bottom - GAP + 5, 10, 10);
+
             DeleteObject(cardBg);
             DeleteObject(cardBorder);
-
+            
             Graphics g(hdc);
             Pen iconPen(Color(180, 180, 180), 2);
 
