@@ -117,6 +117,8 @@ void HighlightText(const std::string& input) {
     UpdateWindow(hEditInput);
 }
 
+static int scrollPosX = 0, scrollPosY = 0;
+
 LRESULT CALLBACK TreeWndProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
     switch (uMsg) {
         case WM_PAINT: {
@@ -128,14 +130,52 @@ LRESULT CALLBACK TreeWndProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
             DeleteObject(bg);
             Graphics g(hdc);
             g.SetSmoothingMode(SmoothingModeAntiAlias);
+            
+            // Apply Scroll Offsets
+            g.TranslateTransform((REAL)-scrollPosX, (REAL)-scrollPosY);
+
             if (globalAST) {
                 Font astFont(L"Arial", 10);
                 SolidBrush nodeBrush(Color(255, 86, 156, 214)); 
                 SolidBrush whiteBrush(Color(255, 255, 255, 255));
                 Pen branchPen(Color(255, 100, 100, 100), 2);
-                DrawASTNode(g, globalAST.get(), rect.right / 2, 40, rect.right / 3, &astFont, &nodeBrush, &whiteBrush, &branchPen);
+                DrawASTNode(g, globalAST.get(), rect.right / 2 + scrollPosX, 40, rect.right / 3, &astFont, &nodeBrush, &whiteBrush, &branchPen);
             }
             EndPaint(hwnd, &ps);
+            return 0;
+        }
+        case WM_MOUSEWHEEL: {
+            int delta = GET_WHEEL_DELTA_WPARAM(wParam);
+            scrollPosY -= (delta / 2);
+            if (scrollPosY < 0) scrollPosY = 0;
+            InvalidateRect(hwnd, NULL, TRUE);
+            return 0;
+        }
+        case WM_VSCROLL: {
+            SCROLLINFO si = { sizeof(si), SIF_ALL };
+            GetScrollInfo(hwnd, SB_VERT, &si);
+            int oldPos = si.nPos;
+            switch (LOWORD(wParam)) {
+                case SB_LINEUP: si.nPos -= 20; break;
+                case SB_LINEDOWN: si.nPos += 20; break;
+                case SB_THUMBTRACK: si.nPos = HIWORD(wParam); break;
+            }
+            SetScrollInfo(hwnd, SB_VERT, &si, TRUE);
+            scrollPosY = si.nPos;
+            InvalidateRect(hwnd, NULL, TRUE);
+            return 0;
+        }
+        case WM_HSCROLL: {
+            SCROLLINFO si = { sizeof(si), SIF_ALL };
+            GetScrollInfo(hwnd, SB_HORZ, &si);
+            switch (LOWORD(wParam)) {
+                case SB_LINELEFT: si.nPos -= 20; break;
+                case SB_LINERIGHT: si.nPos += 20; break;
+                case SB_THUMBTRACK: si.nPos = HIWORD(wParam); break;
+            }
+            SetScrollInfo(hwnd, SB_HORZ, &si, TRUE);
+            scrollPosX = si.nPos;
+            InvalidateRect(hwnd, NULL, TRUE);
             return 0;
         }
         case WM_ERASEBKGND: return 1;
@@ -159,6 +199,13 @@ void UpdateUI(HWND hwnd, const std::string& input) {
 
         Parser parser(tokens);
         globalAST = parser.parse();
+
+        // Update Scroll Ranges based on tree (approximate)
+        SCROLLINFO si = { sizeof(si), SIF_RANGE | SIF_PAGE };
+        si.nMin = 0; si.nMax = 1000; si.nPage = 300;
+        SetScrollInfo(hASTArea, SB_VERT, &si, TRUE);
+        SetScrollInfo(hASTArea, SB_HORZ, &si, TRUE);
+
         InvalidateRect(hASTArea, NULL, TRUE);
 
         double result = globalAST->evaluate();
