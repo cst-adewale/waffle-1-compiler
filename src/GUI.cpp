@@ -225,18 +225,20 @@ void HighlightShell() {
 }
 
 void ExecuteCode(HWND hwnd) {
-    int lineCount = SendMessage(hOutputArea, EM_GETLINECOUNT, 0, 0);
-    if (lineCount <= 0) return;
-    int lastLineIndex = lineCount - 1;
-    char lineBuf[2048] = {0};
-    *(WORD*)lineBuf = sizeof(lineBuf) - 1;
-    int len = SendMessage(hOutputArea, EM_GETLINE, lastLineIndex, (LPARAM)lineBuf);
-    lineBuf[len] = '\0';
-    std::string input = lineBuf;
+    int len = GetWindowTextLength(hOutputArea);
+    if (len <= 0) return;
+    
+    char* buf = new char[len + 1];
+    GetWindowTextA(hOutputArea, buf, len + 1);
+    std::string text = buf;
+    delete[] buf;
 
-    size_t pos = input.find("vanilla-shell >> ");
+    size_t pos = text.rfind("vanilla-shell >> ");
+    std::string input = "";
     if (pos != std::string::npos) {
-        input = input.substr(pos + 17);
+        input = text.substr(pos + 17);
+    } else {
+        input = text;
     }
 
     input.erase(0, input.find_first_not_of(" \t\r\n"));
