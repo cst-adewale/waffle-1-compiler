@@ -46,12 +46,44 @@ void SetAppIcon(HWND hwnd) {
 
 WNDPROC oldShellProc;
 LRESULT CALLBACK ShellProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
-    if (uMsg == WM_CHAR && wParam == VK_RETURN) {
-        LRESULT res = CallWindowProc(oldShellProc, hwnd, uMsg, wParam, lParam);
-        int len = GetWindowTextLength(hwnd);
-        SendMessage(hwnd, EM_SETSEL, len, len);
-        SendMessage(hwnd, EM_REPLACESEL, 0, (LPARAM)L"waffle-shell > ");
-        return res;
+    if (uMsg == WM_KEYDOWN) {
+        if (wParam == VK_BACK || wParam == VK_LEFT) {
+            long startChar, endChar;
+            SendMessage(hwnd, EM_GETSEL, (WPARAM)&startChar, (LPARAM)&endChar);
+            long lineIndex = SendMessage(hwnd, EM_EXLINEFROMCHAR, 0, startChar);
+            long lineStartChar = SendMessage(hwnd, EM_LINEINDEX, lineIndex, 0);
+            
+            if (startChar == endChar && startChar - lineStartChar <= 15) {
+                return 0; // block backspace and left arrow
+            }
+        }
+        else if (wParam == VK_HOME) {
+            long startChar, endChar;
+            SendMessage(hwnd, EM_GETSEL, (WPARAM)&startChar, (LPARAM)&endChar);
+            long lineIndex = SendMessage(hwnd, EM_EXLINEFROMCHAR, 0, startChar);
+            long lineStartChar = SendMessage(hwnd, EM_LINEINDEX, lineIndex, 0);
+            SendMessage(hwnd, EM_SETSEL, lineStartChar + 15, lineStartChar + 15);
+            return 0;
+        }
+    }
+    if (uMsg == WM_CHAR) {
+        if (wParam == VK_BACK) {
+            long startChar, endChar;
+            SendMessage(hwnd, EM_GETSEL, (WPARAM)&startChar, (LPARAM)&endChar);
+            long lineIndex = SendMessage(hwnd, EM_EXLINEFROMCHAR, 0, startChar);
+            long lineStartChar = SendMessage(hwnd, EM_LINEINDEX, lineIndex, 0);
+            
+            if (startChar == endChar && startChar - lineStartChar <= 15) {
+                return 0; // block backspace
+            }
+        }
+        else if (wParam == VK_RETURN) {
+            LRESULT res = CallWindowProc(oldShellProc, hwnd, uMsg, wParam, lParam);
+            int len = GetWindowTextLength(hwnd);
+            SendMessage(hwnd, EM_SETSEL, len, len);
+            SendMessage(hwnd, EM_REPLACESEL, 0, (LPARAM)L"waffle-shell > ");
+            return res;
+        }
     }
     return CallWindowProc(oldShellProc, hwnd, uMsg, wParam, lParam);
 }
