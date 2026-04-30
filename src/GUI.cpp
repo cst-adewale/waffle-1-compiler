@@ -23,7 +23,7 @@ using namespace Gdiplus;
 
 // Global variables for the UI
 HWND hEditInput, hOutputArea, hTokenArea, hLineGutter, hASTArea;
-HFONT hFont, hGutterFont;
+HFONT hFont, hGutterFont, hNavFont;
 ULONG_PTR gdiplusToken;
 HINSTANCE hRichEditLib;
 std::unique_ptr<ASTNode> globalAST; 
@@ -201,7 +201,7 @@ LRESULT CALLBACK TreeWndProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
 }
 
 void HighlightShell() {
-    GETTEXTEX gte = { (DWORD)SendMessage(hOutputArea, WM_GETTEXTLENGTH, 0, 0) + 1, GT_DEFAULT, 1200, NULL, NULL };
+    GETTEXTEX gte = { (DWORD)SendMessage(hOutputArea, WM_GETTEXTLENGTH, 0, 0) + 1, GT_DEFAULT, 0, NULL, NULL };
     char* buffer = new char[gte.cb];
     SendMessage(hOutputArea, EM_GETTEXTEX, (WPARAM)&gte, (LPARAM)buffer);
     std::string text = buffer;
@@ -235,7 +235,7 @@ void HighlightShell() {
 }
 
 void ExecuteCode(HWND hwnd) {
-    GETTEXTEX gte = { (DWORD)SendMessage(hEditInput, WM_GETTEXTLENGTH, 0, 0) + 1, GT_DEFAULT, 1200, NULL, NULL };
+    GETTEXTEX gte = { (DWORD)SendMessage(hEditInput, WM_GETTEXTLENGTH, 0, 0) + 1, GT_DEFAULT, 0, NULL, NULL };
     char* buffer = new char[gte.cb];
     SendMessage(hEditInput, EM_GETTEXTEX, (WPARAM)&gte, (LPARAM)buffer);
     std::string input = buffer;
