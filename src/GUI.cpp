@@ -200,13 +200,53 @@ LRESULT CALLBACK TreeWndProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
     }
 }
 
-void UpdateUI(HWND hwnd, const std::string& input) {
-    HighlightText(input);
-    UpdateLineNumbers();
+void HighlightShell() {
+    GETTEXTEX gte = { (DWORD)SendMessage(hOutputArea, WM_GETTEXTLENGTH, 0, 0) + 1, GT_DEFAULT, 1200, NULL, NULL };
+    char* buffer = new char[gte.cb];
+    SendMessage(hOutputArea, EM_GETTEXTEX, (WPARAM)&gte, (LPARAM)buffer);
+    std::string text = buffer;
+    delete[] buffer;
+
+    // Save selection
+    CHARRANGE cr; SendMessage(hOutputArea, EM_EXGETSEL, 0, (LPARAM)&cr);
+    SendMessage(hOutputArea, WM_SETREDRAW, FALSE, 0);
+
+    // Default Gray
+    CHARFORMAT2 cf; ZeroMemory(&cf, sizeof(cf)); cf.cbSize = sizeof(cf);
+    cf.dwMask = CFM_COLOR; cf.crTextColor = RGB(220, 220, 220);
+    SendMessage(hOutputArea, EM_SETSEL, 0, -1);
+    SendMessage(hOutputArea, EM_SETCHARFORMAT, SCF_SELECTION, (LPARAM)&cf);
+
+    // Highlight Yellow Commands (Library)
+    std::vector<std::string> commands = {"clear", "help", "run", "exit", "ast", "tokens"};
+    for (const auto& cmd : commands) {
+        size_t pos = text.find(cmd);
+        while (pos != std::string::npos) {
+            cf.crTextColor = RGB(255, 215, 0); // Golden Yellow
+            SendMessage(hOutputArea, EM_SETSEL, pos, pos + cmd.length());
+            SendMessage(hOutputArea, EM_SETCHARFORMAT, SCF_SELECTION, (LPARAM)&cf);
+            pos = text.find(cmd, pos + 1);
+        }
+    }
+
+    SendMessage(hOutputArea, EM_EXSETSEL, 0, (LPARAM)&cr);
+    SendMessage(hOutputArea, WM_SETREDRAW, TRUE, 0);
+    InvalidateRect(hOutputArea, NULL, FALSE);
+}
+
+void ExecuteCode(HWND hwnd) {
+    GETTEXTEX gte = { (DWORD)SendMessage(hEditInput, WM_GETTEXTLENGTH, 0, 0) + 1, GT_DEFAULT, 1200, NULL, NULL };
+    char* buffer = new char[gte.cb];
+    SendMessage(hEditInput, EM_GETTEXTEX, (WPARAM)&gte, (LPARAM)buffer);
+    std::string input = buffer;
+    delete[] buffer;
+
     if (input.empty()) return;
     try {
         Lexer lexer(input);
         auto tokens = lexer.tokenize();
+
+        // 1. Update Tokens
         std::string tokenStr = "--- TOKENS ---\r\n";
         for (const auto& t : tokens) {
             if (t.type == WToken::END_OF_FILE) break;
@@ -214,23 +254,34 @@ void UpdateUI(HWND hwnd, const std::string& input) {
         }
         SetWindowTextA(hTokenArea, tokenStr.c_str());
 
+        // 2. Parse and Redraw Tree
         Parser parser(tokens);
         globalAST = parser.parse();
-
-        // Update Scroll Ranges based on tree (approximate)
-        SCROLLINFO si = { sizeof(si), SIF_RANGE | SIF_PAGE };
-        si.nMin = 0; si.nMax = 1000; si.nPage = 300;
-        SetScrollInfo(hASTArea, SB_VERT, &si, TRUE);
-        SetScrollInfo(hASTArea, SB_HORZ, &si, TRUE);
-
+        
+        // Smart Scrollbar Check
+        RECT astRc; GetClientRect(hASTArea, &astRc);
+        int treeWidth = 500; // Estimated for now
+        ShowScrollBar(hASTArea, SB_HORZ, treeWidth > (astRc.right - astRc.left));
+        
         InvalidateRect(hASTArea, NULL, TRUE);
 
+        // 3. Evaluate to Shell
         double result = globalAST->evaluate();
-        std::string shellOutput = "waffle-shell > Result: " + std::to_string((int)result);
+        std::string currentShellText = "";
+        char shellBuf[2048];
+        GetWindowTextA(hOutputArea, shellBuf, 2048);
+        std::string shellOutput = std::string(shellBuf) + "\r\nwaffle-shell > Result: " + std::to_string((int)result);
         SetWindowTextA(hOutputArea, shellOutput.c_str());
+        HighlightShell();
+
     } catch (...) {
-        SetWindowTextA(hOutputArea, "waffle-shell > [Parsing...] Waiting for complete code...");
+        SetWindowTextA(hOutputArea, "waffle-shell > [Error] Syntax Error in code!");
     }
+}
+
+void UpdateUI(HWND hwnd, const std::string& input) {
+    HighlightText(input);
+    UpdateLineNumbers();
 }
 
 int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR pCmdLine, int nCmdShow) {
@@ -329,10 +380,11 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
             SendMessage(hLineGutter, WM_SETFONT, (WPARAM)hFont, TRUE);
 
             hOutputArea = CreateWindowEx(0, MSFTEDIT_CLASS, L"waffle-shell > Welcome to Waffle Studio", 
-                WS_CHILD | WS_VISIBLE | ES_MULTILINE | ES_READONLY | ES_AUTOVSCROLL,
+                WS_CHILD | WS_VISIBLE | ES_MULTILINE | ES_AUTOVSCROLL,
                 75, 400, 600, 250, hwnd, NULL, NULL, NULL);
             SendMessage(hOutputArea, WM_SETFONT, (WPARAM)hFont, TRUE);
             SendMessage(hOutputArea, EM_SETBKGNDCOLOR, 0, RGB(35, 35, 35));
+            SendMessage(hOutputArea, EM_SETEVENTMASK, 0, ENM_CHANGE);
 
             hTokenArea = CreateWindowEx(0, MSFTEDIT_CLASS, L"--- TOKENS ---", 
                 WS_CHILD | WS_VISIBLE | ES_MULTILINE | ES_READONLY | ES_AUTOVSCROLL | WS_VSCROLL,
@@ -345,19 +397,22 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
                 650, 370, 310, 280, hwnd, NULL, NULL, NULL);
             SetWindowTheme(hASTArea, L"DarkMode_Explorer", NULL);
 
-            // SET ALL TEXT TO LIGHT GRAY
+            // SET ALL TEXT (Including Gutter) TO LIGHT GRAY
             CHARFORMAT2 cfAll;
             ZeroMemory(&cfAll, sizeof(cfAll));
             cfAll.cbSize = sizeof(cfAll);
             cfAll.dwMask = CFM_COLOR;
             cfAll.crTextColor = RGB(220, 220, 220);
+            SendMessage(hEditInput, EM_SETCHARFORMAT, SCF_ALL, (LPARAM)&cfAll);
             SendMessage(hOutputArea, EM_SETCHARFORMAT, SCF_ALL, (LPARAM)&cfAll);
             SendMessage(hTokenArea, EM_SETCHARFORMAT, SCF_ALL, (LPARAM)&cfAll);
+            SendMessage(hLineGutter, EM_SETCHARFORMAT, SCF_ALL, (LPARAM)&cfAll);
 
             // Apply Aggressive Dark Scrollbars
             SetWindowTheme(hEditInput, L"DarkMode_Explorer", NULL);
             SetWindowTheme(hOutputArea, L"DarkMode_Explorer", NULL);
             SetWindowTheme(hTokenArea, L"DarkMode_Explorer", NULL);
+            SetWindowTheme(hLineGutter, L"DarkMode_Explorer", NULL);
 
             BOOL useDarkMode = TRUE;
             DwmSetWindowAttribute(hwnd, DWMWA_USE_IMMERSIVE_DARK_MODE, &useDarkMode, sizeof(useDarkMode));
@@ -408,24 +463,24 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
             int x = LOWORD(lParam);
             int y = HIWORD(lParam);
 
+            // Close, Minimize, Maximize
             if (y >= 18 && y <= 30) {
-                if (x >= 20 && x <= 32) {
-                    // Smooth Fade-Out (0.5s)
-                    AnimateWindow(hwnd, 500, AW_BLEND | AW_HIDE);
-                    PostQuitMessage(0); 
-                }
+                if (x >= 20 && x <= 32) { AnimateWindow(hwnd, 500, AW_BLEND | AW_HIDE); PostQuitMessage(0); }
                 else if (x >= 40 && x <= 52) ShowWindow(hwnd, SW_MINIMIZE);
-                else if (x >= 60 && x <= 72) {
-                    if (IsZoomed(hwnd)) ShowWindow(hwnd, SW_RESTORE);
-                    else ShowWindow(hwnd, SW_MAXIMIZE);
+                else if (x >= 60 && x <= 72) { if (IsZoomed(hwnd)) ShowWindow(hwnd, SW_RESTORE); else ShowWindow(hwnd, SW_MAXIMIZE); }
+            }
+            
+            // "Run" Button in Navbar
+            if (y >= 10 && y <= 40) {
+                if (x >= 140 && x <= 180) {
+                    ExecuteCode(hwnd);
                 }
             }
 
-            if (y < 50) {
-                bDragging = true;
-                GetCursorPos(&ptLastMouse);
-                SetCapture(hwnd);
-            }
+            bDragging = true;
+            ptLastMouse.x = x;
+            ptLastMouse.y = y;
+            SetCapture(hwnd);
             break;
         }
 
