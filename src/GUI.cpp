@@ -151,6 +151,8 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR pCmdLine
 
     if (hwnd == NULL) return 0;
 
+    // Smooth Fade-In (0.5s)
+    AnimateWindow(hwnd, 500, AW_BLEND | AW_ACTIVATE);
     ShowWindow(hwnd, nCmdShow);
 
     MSG msg = { };
@@ -255,8 +257,8 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
 
             if (y >= 18 && y <= 30) {
                 if (x >= 20 && x <= 32) {
-                    // Smooth Fade-Out (0.3s)
-                    AnimateWindow(hwnd, 300, AW_BLEND | AW_HIDE);
+                    // Smooth Fade-Out (0.5s)
+                    AnimateWindow(hwnd, 500, AW_BLEND | AW_HIDE);
                     PostQuitMessage(0); 
                 }
                 else if (x >= 40 && x <= 52) ShowWindow(hwnd, SW_MINIMIZE);
@@ -371,15 +373,15 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
             // Real File Icon (file_icon.png)
             Image fileIcon(L"file_icon.png");
             if (fileIcon.GetLastStatus() == Ok) {
-                g.DrawImage(&fileIcon, 10, 70, 30, 30);
+                g.DrawImage(&fileIcon, 12, 72, 25, 25);
             } else {
                 // Fallback if image not found
                 g.DrawRectangle(&iconPen, 15, 75, 20, 25);
             }
 
-            // Search Icon (Magnifying glass)
-            g.DrawEllipse(&iconPen, 15, 130, 15, 15);
-            g.DrawLine(&iconPen, 27, 143, 35, 150);
+            // Search Icon (Magnifying glass) - Reduced 15%
+            g.DrawEllipse(&iconPen, 18, 130, 13, 13);
+            g.DrawLine(&iconPen, 28, 140, 34, 146);
 
             // Mac Buttons
             HBRUSH redBrush = CreateSolidBrush(RGB(255, 95, 87));
