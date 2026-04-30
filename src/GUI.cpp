@@ -15,9 +15,14 @@ using namespace Gdiplus;
 #include <richedit.h>
 #include <tom.h>
 #include <uxtheme.h>
+#include <dwmapi.h>
+
+#ifndef DWMWA_USE_IMMERSIVE_DARK_MODE
+#define DWMWA_USE_IMMERSIVE_DARK_MODE 20
+#endif
 
 // Global variables for the UI
-HWND hEditInput, hOutputArea, hTokenArea, hLineGutter;
+HWND hEditInput, hOutputArea, hTokenArea, hLineGutter, hASTArea;
 HFONT hFont, hGutterFont;
 ULONG_PTR gdiplusToken;
 HINSTANCE hRichEditLib;
@@ -112,6 +117,32 @@ void HighlightText(const std::string& input) {
     UpdateWindow(hEditInput);
 }
 
+LRESULT CALLBACK TreeWndProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
+    switch (uMsg) {
+        case WM_PAINT: {
+            PAINTSTRUCT ps;
+            HDC hdc = BeginPaint(hwnd, &ps);
+            RECT rect; GetClientRect(hwnd, &rect);
+            HBRUSH bg = CreateSolidBrush(RGB(35, 35, 35));
+            FillRect(hdc, &rect, bg);
+            DeleteObject(bg);
+            Graphics g(hdc);
+            g.SetSmoothingMode(SmoothingModeAntiAlias);
+            if (globalAST) {
+                Font astFont(L"Arial", 10);
+                SolidBrush nodeBrush(Color(255, 86, 156, 214)); 
+                SolidBrush whiteBrush(Color(255, 255, 255, 255));
+                Pen branchPen(Color(255, 100, 100, 100), 2);
+                DrawASTNode(g, globalAST.get(), rect.right / 2, 40, rect.right / 3, &astFont, &nodeBrush, &whiteBrush, &branchPen);
+            }
+            EndPaint(hwnd, &ps);
+            return 0;
+        }
+        case WM_ERASEBKGND: return 1;
+        default: return DefWindowProc(hwnd, uMsg, wParam, lParam);
+    }
+}
+
 void UpdateUI(HWND hwnd, const std::string& input) {
     HighlightText(input);
     UpdateLineNumbers();
@@ -128,7 +159,7 @@ void UpdateUI(HWND hwnd, const std::string& input) {
 
         Parser parser(tokens);
         globalAST = parser.parse();
-        InvalidateRect(hwnd, NULL, TRUE);
+        InvalidateRect(hASTArea, NULL, TRUE);
 
         double result = globalAST->evaluate();
         std::string shellOutput = "waffle-shell > Result: " + std::to_string((int)result);
@@ -154,6 +185,13 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR pCmdLine
     wc.hbrBackground = CreateSolidBrush(RGB(30, 30, 30)); // Dark background
 
     RegisterClass(&wc);
+
+    WNDCLASS twc = { };
+    twc.lpfnWndProc = TreeWndProc;
+    twc.hInstance = hInstance;
+    twc.lpszClassName = L"WaffleTreeVisualizer";
+    twc.hCursor = LoadCursor(NULL, IDC_ARROW);
+    RegisterClass(&twc);
 
     HWND hwnd = CreateWindowEx(
         0, CLASS_NAME, L"Waffle Studio",
@@ -188,7 +226,7 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
             hLineGutter = CreateWindowEx(0, L"EDIT", L"1", 
                 WS_CHILD | WS_VISIBLE | ES_MULTILINE | ES_READONLY | ES_RIGHT,
                 10, 80, 35, 300, hwnd, NULL, NULL, NULL);
-            SendMessage(hLineGutter, WM_SETFONT, (WPARAM)hFont, TRUE);
+            SendMessage(hLineGutter, EM_SETMARGINS, EC_LEFTMARGIN | EC_RIGHTMARGIN, 0);
 
             // Main Input
             hEditInput = CreateWindowEx(0, MSFTEDIT_CLASS, L"", 
@@ -197,14 +235,13 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
             SendMessage(hEditInput, WM_SETFONT, (WPARAM)hFont, TRUE);
             SendMessage(hEditInput, EM_SETBKGNDCOLOR, 0, RGB(35, 35, 35));
             SendMessage(hEditInput, EM_SETTARGETDEVICE, 0, 1); // Disable Word Wrap
+            SendMessage(hEditInput, EM_SETMARGINS, EC_LEFTMARGIN, 0);
 
-            // SYNC PADDING (Both start 10px from top)
-            RECT rc;
-            SetRect(&rc, 5, 10, 580, 300); // 10px top
+            // SYNC PADDING (Exactly 10px top)
+            RECT rc; SetRect(&rc, 0, 10, 580, 300); 
             SendMessage(hEditInput, EM_SETRECT, 0, (LPARAM)&rc);
             
-            RECT gutterRc;
-            SetRect(&gutterRc, 0, 10, 35, 300); // 10px top for numbers
+            RECT gutterRc; SetRect(&gutterRc, 0, 10, 35, 300); 
             SendMessage(hLineGutter, EM_SETRECT, 0, (LPARAM)&gutterRc);
 
             // Set DEFAULT text color to Light Gray so it's visible
@@ -221,7 +258,9 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
             // Add Padding (Left Margin) so text isn't against the edge
             SendMessage(hEditInput, EM_SETMARGINS, EC_LEFTMARGIN, MAKELONG(15, 0));
 
-            hOutputArea = CreateWindowEx(0, MSFTEDIT_CLASS, L"waffle-shell > Welcome to Waffle Studio\r\nType your C++ math code above...", 
+            SendMessage(hLineGutter, WM_SETFONT, (WPARAM)hFont, TRUE);
+
+            hOutputArea = CreateWindowEx(0, MSFTEDIT_CLASS, L"waffle-shell > Welcome to Waffle Studio", 
                 WS_CHILD | WS_VISIBLE | ES_MULTILINE | ES_READONLY | ES_AUTOVSCROLL,
                 75, 400, 600, 250, hwnd, NULL, NULL, NULL);
             SendMessage(hOutputArea, WM_SETFONT, (WPARAM)hFont, TRUE);
@@ -233,6 +272,11 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
             SendMessage(hTokenArea, WM_SETFONT, (WPARAM)hFont, TRUE);
             SendMessage(hTokenArea, EM_SETBKGNDCOLOR, 0, RGB(35, 35, 35));
 
+            hASTArea = CreateWindowEx(0, L"WaffleTreeVisualizer", NULL, 
+                WS_CHILD | WS_VISIBLE | WS_VSCROLL | WS_HSCROLL,
+                650, 370, 310, 280, hwnd, NULL, NULL, NULL);
+            SetWindowTheme(hASTArea, L"DarkMode_Explorer", NULL);
+
             // SET ALL TEXT TO LIGHT GRAY
             CHARFORMAT2 cfAll;
             ZeroMemory(&cfAll, sizeof(cfAll));
@@ -242,10 +286,13 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
             SendMessage(hOutputArea, EM_SETCHARFORMAT, SCF_ALL, (LPARAM)&cfAll);
             SendMessage(hTokenArea, EM_SETCHARFORMAT, SCF_ALL, (LPARAM)&cfAll);
 
-            // Apply Dark Scrollbars
-            SetWindowTheme(hEditInput, L"Explorer", NULL);
-            SetWindowTheme(hOutputArea, L"Explorer", NULL);
-            SetWindowTheme(hTokenArea, L"Explorer", NULL);
+            // Apply Aggressive Dark Scrollbars
+            SetWindowTheme(hEditInput, L"DarkMode_Explorer", NULL);
+            SetWindowTheme(hOutputArea, L"DarkMode_Explorer", NULL);
+            SetWindowTheme(hTokenArea, L"DarkMode_Explorer", NULL);
+
+            BOOL useDarkMode = TRUE;
+            DwmSetWindowAttribute(hwnd, DWMWA_USE_IMMERSIVE_DARK_MODE, &useDarkMode, sizeof(useDarkMode));
             break;
         }
 
@@ -282,6 +329,8 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
             MoveWindow(hTokenArea, SIDEBAR_WIDTH + leftPanelWidth + GAP, TOP_OFFSET, rightPanelWidth - GAP, gutsHeight - GAP, TRUE);
             RECT tokenRc; SetRect(&tokenRc, 10, 10, rightPanelWidth - 20, gutsHeight - 20);
             SendMessage(hTokenArea, EM_SETRECT, 0, (LPARAM)&tokenRc);
+
+            MoveWindow(hASTArea, SIDEBAR_WIDTH + leftPanelWidth + GAP, TOP_OFFSET + gutsHeight, rightPanelWidth - GAP, gutsHeight, TRUE);
 
             InvalidateRect(hwnd, NULL, TRUE);
             break;
