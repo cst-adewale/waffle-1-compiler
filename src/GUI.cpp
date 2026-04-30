@@ -14,6 +14,7 @@ using namespace Gdiplus;
 
 #include <richedit.h>
 #include <tom.h>
+#include <uxtheme.h>
 
 // Global variables for the UI
 HWND hEditInput, hOutputArea, hTokenArea, hASTArea, hLineGutter;
@@ -21,9 +22,36 @@ HFONT hFont, hGutterFont;
 ULONG_PTR gdiplusToken;
 HINSTANCE hRichEditLib;
 
-LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam);
+void DrawASTNode(Graphics& g, ASTNode* node, int x, int y, int xOffset, Font* font, SolidBrush* brush, Pen* pen) {
+    if (!node) return;
 
-void UpdateLineNumbers() {
+    // Draw lines to children first
+    if (auto bin = dynamic_cast<BinaryOpNode*>(node)) {
+        int nextY = y + 60;
+        g.DrawLine(pen, x, y, x - xOffset, nextY);
+        g.DrawLine(pen, x, y, x + xOffset, nextY);
+        DrawASTNode(g, bin->left.get(), x - xOffset, nextY, xOffset / 2, font, brush, pen);
+        DrawASTNode(g, bin->right.get(), x + xOffset, nextY, xOffset / 2, font, brush, pen);
+    } else if (auto ret = dynamic_cast<ReturnNode*>(node)) {
+        int nextY = y + 60;
+        g.DrawLine(pen, x, y, x, nextY);
+        DrawASTNode(g, ret->expression.get(), x, nextY, xOffset / 2, font, brush, pen);
+    } else if (auto prog = dynamic_cast<ProgramNode*>(node)) {
+         // For simplicity, just draw the first statement in the visualizer for now
+         if (!prog->statements.empty()) {
+            DrawASTNode(g, prog->statements[0].get(), x, y + 40, xOffset, font, brush, pen);
+         }
+    }
+
+    // Draw the node circle
+    g.FillEllipse(brush, x - 15, y - 15, 30, 30);
+    g.DrawEllipse(pen, x - 15, y - 15, 30, 30);
+
+    // Draw the label
+    std::string label = node->toString().substr(0, 3); // Short label
+    std::wstring wLabel(label.begin(), label.end());
+    g.DrawString(wLabel.c_str(), -1, font, PointF(x - 10, y - 8), brush);
+}
     int lineCount = SendMessage(hEditInput, EM_GETLINECOUNT, 0, 0);
     std::string numbers = "";
     for (int i = 1; i <= lineCount; ++i) {
@@ -92,6 +120,17 @@ void HighlightText(const std::string& input) {
     UpdateWindow(hEditInput);
 }
 
+// Global variables for the UI
+HWND hEditInput, hOutputArea, hTokenArea, hASTArea, hLineGutter;
+HFONT hFont, hGutterFont;
+ULONG_PTR gdiplusToken;
+HINSTANCE hRichEditLib;
+std::unique_ptr<ProgramNode> globalAST; // Store for drawing
+
+LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam);
+
+// ... DrawASTNode logic ...
+
 void UpdateUI(const std::string& input) {
     HighlightText(input);
     UpdateLineNumbers();
@@ -101,6 +140,7 @@ void UpdateUI(const std::string& input) {
         Lexer lexer(input);
         auto tokens = lexer.tokenize();
 
+        // Update Tokens panel
         std::string tokenStr = "--- TOKENS ---\r\n";
         for (const auto& t : tokens) {
             if (t.type == WToken::END_OF_FILE) break;
@@ -108,13 +148,15 @@ void UpdateUI(const std::string& input) {
         }
         SetWindowTextA(hTokenArea, tokenStr.c_str());
 
+        // Parse and Store for Visual Tree
         Parser parser(tokens);
-        auto ast = parser.parse();
-        std::string astStr = "--- AST TREE ---\r\n" + ast->toString();
-        SetWindowTextA(hASTArea, astStr.c_str());
+        globalAST = parser.parse();
+        
+        // Trigger a Redraw for the Tree Diagram
+        InvalidateRect(GetParent(hASTArea), NULL, TRUE);
 
         // 3. EVALUATE and Print to Shell
-        double result = ast->evaluate();
+        double result = globalAST->evaluate();
         std::string shellOutput = "waffle-shell > Result: " + std::to_string((int)result);
         SetWindowTextA(hOutputArea, shellOutput.c_str());
 
@@ -237,6 +279,12 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
             SendMessage(hOutputArea, EM_SETCHARFORMAT, SCF_ALL, (LPARAM)&cfAll);
             SendMessage(hTokenArea, EM_SETCHARFORMAT, SCF_ALL, (LPARAM)&cfAll);
             SendMessage(hASTArea, EM_SETCHARFORMAT, SCF_ALL, (LPARAM)&cfAll);
+
+            // Apply Dark Scrollbars
+            SetWindowTheme(hEditInput, L"Explorer", NULL);
+            SetWindowTheme(hOutputArea, L"Explorer", NULL);
+            SetWindowTheme(hTokenArea, L"Explorer", NULL);
+            SetWindowTheme(hASTArea, L"Explorer", NULL);
             break;
         }
 
