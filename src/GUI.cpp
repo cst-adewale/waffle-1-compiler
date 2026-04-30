@@ -30,6 +30,20 @@ std::unique_ptr<ASTNode> globalAST;
 
 LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam);
 
+void SetAppIcon(HWND hwnd) {
+    Image image(L"logo.png");
+    if (image.GetLastStatus() == Ok) {
+        HICON hIcon;
+        Bitmap* bitmap = static_cast<Bitmap*>(image.Clone());
+        bitmap->GetHICON(&hIcon);
+        
+        SendMessage(hwnd, WM_SETICON, ICON_BIG, (LPARAM)hIcon);
+        SendMessage(hwnd, WM_SETICON, ICON_SMALL, (LPARAM)hIcon);
+        
+        delete bitmap;
+    }
+}
+
 void UpdateLineNumbers() {
     int lineCount = SendMessage(hEditInput, EM_GETLINECOUNT, 0, 0);
     std::string numbers = "";
@@ -37,8 +51,11 @@ void UpdateLineNumbers() {
         numbers += std::to_string(i) + "\r\n";
     }
     SetWindowTextA(hLineGutter, numbers.c_str());
-    int firstLine = SendMessage(hEditInput, EM_GETFIRSTVISIBLELINE, 0, 0);
-    SendMessage(hLineGutter, EM_LINESCROLL, 0, firstLine - SendMessage(hLineGutter, EM_GETFIRSTVISIBLELINE, 0, 0));
+
+    // Pixel-Perfect Scroll Sync
+    POINT pt;
+    SendMessage(hEditInput, EM_GETSCROLLPOS, 0, (LPARAM)&pt);
+    SendMessage(hLineGutter, EM_SETSCROLLPOS, 0, (LPARAM)&pt);
 }
 
 void DrawASTNode(Graphics& g, ASTNode* node, int x, int y, int xOffset, Font* font, SolidBrush* circleBrush, SolidBrush* textBrush, Pen* pen) {
@@ -269,11 +286,15 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
 
     switch (uMsg) {
         case WM_CREATE: {
-            // Line Number Gutter (Synced Font)
-            hLineGutter = CreateWindowEx(0, L"EDIT", L"1", 
-                WS_CHILD | WS_VISIBLE | ES_MULTILINE | ES_READONLY | ES_RIGHT,
+            SetAppIcon(hwnd);
+            // Line Number Gutter (Upgraded to RichEdit)
+            hLineGutter = CreateWindowEx(0, MSFTEDIT_CLASS, L"1", 
+                WS_CHILD | WS_VISIBLE | ES_MULTILINE | ES_READONLY | ES_RIGHT | ES_NOHIDESEL,
                 10, 80, 35, 300, hwnd, NULL, NULL, NULL);
+            SendMessage(hLineGutter, WM_SETFONT, (WPARAM)hFont, TRUE);
+            SendMessage(hLineGutter, EM_SETBKGNDCOLOR, 0, RGB(35, 35, 35));
             SendMessage(hLineGutter, EM_SETMARGINS, EC_LEFTMARGIN | EC_RIGHTMARGIN, 0);
+            SetWindowTheme(hLineGutter, L"DarkMode_Explorer", NULL);
 
             // Main Input
             hEditInput = CreateWindowEx(0, MSFTEDIT_CLASS, L"", 
@@ -571,9 +592,9 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
             int titleX = (rect.right / 2) - 50;
             TextOut(hdc, titleX, 15, title.c_str(), title.length());
 
-            // Real Logo (logo.jpg)
+            // Real Logo (logo.png)
             Graphics graphics(hdc);
-            Image image(L"logo.jpg");
+            Image image(L"logo.png");
             if (image.GetLastStatus() == Ok) {
                 graphics.DrawImage(&image, titleX - 45, 10, 30, 30);
             } else {
