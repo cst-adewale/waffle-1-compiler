@@ -16,7 +16,7 @@ using namespace Gdiplus;
 #include <tom.h>
 
 // Global variables for the UI
-HWND hEditInput, hOutputArea, hVisualizerArea, hLineGutter;
+HWND hEditInput, hOutputArea, hTokenArea, hASTArea, hLineGutter;
 HFONT hFont, hGutterFont;
 ULONG_PTR gdiplusToken;
 HINSTANCE hRichEditLib;
@@ -100,19 +100,18 @@ void UpdateUI(const std::string& input) {
     try {
         Lexer lexer(input);
         auto tokens = lexer.tokenize();
-        // ... rest of visualizer code
 
         std::string tokenStr = "--- TOKENS ---\r\n";
         for (const auto& t : tokens) {
             if (t.type == WToken::END_OF_FILE) break;
             tokenStr += "[" + t.value + "] ";
         }
+        SetWindowTextA(hTokenArea, tokenStr.c_str());
 
         Parser parser(tokens);
         auto ast = parser.parse();
-        std::string astStr = "\r\n\r\n--- AST TREE ---\r\n" + ast->toString();
-        
-        SetWindowTextA(hVisualizerArea, (tokenStr + astStr).c_str());
+        std::string astStr = "--- AST TREE ---\r\n" + ast->toString();
+        SetWindowTextA(hASTArea, astStr.c_str());
 
         // 3. EVALUATE and Print to Shell
         double result = ast->evaluate();
@@ -120,7 +119,6 @@ void UpdateUI(const std::string& input) {
         SetWindowTextA(hOutputArea, shellOutput.c_str());
 
     } catch (...) {
-        // If there's a syntax error, show it in the shell
         SetWindowTextA(hOutputArea, "waffle-shell > [Parsing...] Waiting for complete code...");
     }
 }
@@ -181,12 +179,13 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
                 10, 80, 35, 300, hwnd, NULL, NULL, NULL);
             SendMessage(hLineGutter, WM_SETFONT, (WPARAM)hGutterFont, TRUE);
 
-            // Main Input (Moved closer to gutter)
+            // Main Input (No Wrap + Scrollbars)
             hEditInput = CreateWindowEx(0, MSFTEDIT_CLASS, L"", 
-                WS_CHILD | WS_VISIBLE | ES_MULTILINE | ES_AUTOVSCROLL | ES_WANTRETURN | ES_NOHIDESEL,
+                WS_CHILD | WS_VISIBLE | ES_MULTILINE | ES_AUTOVSCROLL | ES_AUTOHSCROLL | WS_VSCROLL | WS_HSCROLL | ES_WANTRETURN | ES_NOHIDESEL,
                 45, 80, 580, 300, hwnd, NULL, NULL, NULL);
             SendMessage(hEditInput, WM_SETFONT, (WPARAM)hFont, TRUE);
             SendMessage(hEditInput, EM_SETBKGNDCOLOR, 0, RGB(35, 35, 35));
+            SendMessage(hEditInput, EM_SETTARGETDEVICE, 0, 1); // Disable Word Wrap
 
             // SYNC PADDING (Both start 10px from top)
             RECT rc;
@@ -205,8 +204,8 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
             cf.crTextColor = RGB(220, 220, 220);
             SendMessage(hEditInput, EM_SETCHARFORMAT, SCF_ALL, (LPARAM)&cf);
 
-            // ENABLE "Change" notifications for RichEdit
-            SendMessage(hEditInput, EM_SETEVENTMASK, 0, ENM_CHANGE);
+            // ENABLE "Change" and "Scroll" notifications for RichEdit
+            SendMessage(hEditInput, EM_SETEVENTMASK, 0, ENM_CHANGE | ENM_SCROLL);
 
             // Add Padding (Left Margin) so text isn't against the edge
             SendMessage(hEditInput, EM_SETMARGINS, EC_LEFTMARGIN, MAKELONG(15, 0));
@@ -217,11 +216,17 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
             SendMessage(hOutputArea, WM_SETFONT, (WPARAM)hFont, TRUE);
             SendMessage(hOutputArea, EM_SETBKGNDCOLOR, 0, RGB(35, 35, 35));
 
-            hVisualizerArea = CreateWindowEx(0, MSFTEDIT_CLASS, L"--- COMPILER GUTS ---", 
-                WS_CHILD | WS_VISIBLE | ES_MULTILINE | ES_READONLY | ES_AUTOVSCROLL,
-                650, 80, 310, 570, hwnd, NULL, NULL, NULL);
-            SendMessage(hVisualizerArea, WM_SETFONT, (WPARAM)hFont, TRUE);
-            SendMessage(hVisualizerArea, EM_SETBKGNDCOLOR, 0, RGB(35, 35, 35));
+            hTokenArea = CreateWindowEx(0, MSFTEDIT_CLASS, L"--- TOKENS ---", 
+                WS_CHILD | WS_VISIBLE | ES_MULTILINE | ES_READONLY | ES_AUTOVSCROLL | WS_VSCROLL,
+                650, 80, 310, 280, hwnd, NULL, NULL, NULL);
+            SendMessage(hTokenArea, WM_SETFONT, (WPARAM)hFont, TRUE);
+            SendMessage(hTokenArea, EM_SETBKGNDCOLOR, 0, RGB(35, 35, 35));
+
+            hASTArea = CreateWindowEx(0, MSFTEDIT_CLASS, L"--- AST TREE ---", 
+                WS_CHILD | WS_VISIBLE | ES_MULTILINE | ES_READONLY | ES_AUTOVSCROLL | WS_VSCROLL,
+                650, 370, 310, 280, hwnd, NULL, NULL, NULL);
+            SendMessage(hASTArea, WM_SETFONT, (WPARAM)hFont, TRUE);
+            SendMessage(hASTArea, EM_SETBKGNDCOLOR, 0, RGB(35, 35, 35));
 
             // SET ALL TEXT TO LIGHT GRAY
             CHARFORMAT2 cfAll;
@@ -230,7 +235,8 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
             cfAll.dwMask = CFM_COLOR;
             cfAll.crTextColor = RGB(220, 220, 220);
             SendMessage(hOutputArea, EM_SETCHARFORMAT, SCF_ALL, (LPARAM)&cfAll);
-            SendMessage(hVisualizerArea, EM_SETCHARFORMAT, SCF_ALL, (LPARAM)&cfAll);
+            SendMessage(hTokenArea, EM_SETCHARFORMAT, SCF_ALL, (LPARAM)&cfAll);
+            SendMessage(hASTArea, EM_SETCHARFORMAT, SCF_ALL, (LPARAM)&cfAll);
             break;
         }
 
@@ -262,10 +268,15 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
             RECT shellRc; SetRect(&shellRc, 10, 10, leftPanelWidth - 10, outputHeight);
             SendMessage(hOutputArea, EM_SETRECT, 0, (LPARAM)&shellRc);
 
-            // 3. Guts (Right of Editor/Shell, Aligned with Top Nav and Right Edge)
-            MoveWindow(hVisualizerArea, SIDEBAR_WIDTH + leftPanelWidth + GAP, TOP_OFFSET, rightPanelWidth - GAP, height - TOP_OFFSET - GAP, TRUE);
-            RECT gutsRc; SetRect(&gutsRc, 10, 10, rightPanelWidth - 20, height - TOP_OFFSET - 20);
-            SendMessage(hVisualizerArea, EM_SETRECT, 0, (LPARAM)&gutsRc);
+            // 3. Guts (Right side, Split into Top/Bottom)
+            int gutsHeight = (height - TOP_OFFSET - GAP) / 2;
+            MoveWindow(hTokenArea, SIDEBAR_WIDTH + leftPanelWidth + GAP, TOP_OFFSET, rightPanelWidth - GAP, gutsHeight - GAP, TRUE);
+            RECT tokenRc; SetRect(&tokenRc, 10, 10, rightPanelWidth - 20, gutsHeight - 20);
+            SendMessage(hTokenArea, EM_SETRECT, 0, (LPARAM)&tokenRc);
+
+            MoveWindow(hASTArea, SIDEBAR_WIDTH + leftPanelWidth + GAP, TOP_OFFSET + gutsHeight, rightPanelWidth - GAP, gutsHeight, TRUE);
+            RECT astRc; SetRect(&astRc, 10, 10, rightPanelWidth - 20, gutsHeight - 20);
+            SendMessage(hASTArea, EM_SETRECT, 0, (LPARAM)&astRc);
 
             InvalidateRect(hwnd, NULL, TRUE);
             break;
@@ -345,6 +356,9 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
                 UpdateUI(buffer);
                 delete[] buffer;
             }
+            if (HIWORD(wParam) == EN_VSCROLL && (HWND)lParam == hEditInput) {
+                UpdateLineNumbers();
+            }
             break;
         }
 
@@ -390,8 +404,12 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
             // Shell Card
             RoundRect(hdc, SIDE_W - 5, TOP_O + inH + GAP - 5, SIDE_W + leftW + 5, rect.bottom - GAP + 5, 10, 10);
 
-            // Guts Card
-            RoundRect(hdc, SIDE_W + leftW + GAP - 5, TOP_O - 5, rect.right - GAP + 5, rect.bottom - GAP + 5, 10, 10);
+            // Guts Cards (Split)
+            int gutsH = (rect.bottom - TOP_O - GAP) / 2;
+            // Token Card
+            RoundRect(hdc, SIDE_W + leftW + GAP - 5, TOP_O - 5, rect.right - GAP + 5, TOP_O + gutsH - GAP + 5, 10, 10);
+            // AST Card
+            RoundRect(hdc, SIDE_W + leftW + GAP - 5, TOP_O + gutsH - 5, rect.right - GAP + 5, rect.bottom - GAP + 5, 10, 10);
 
             DeleteObject(cardBg);
             DeleteObject(cardBorder);
