@@ -496,8 +496,7 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
             }
 
             bDragging = true;
-            ptLastMouse.x = x;
-            ptLastMouse.y = y;
+            GetCursorPos(&ptLastMouse);
             SetCapture(hwnd);
             break;
         }
