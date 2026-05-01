@@ -18,6 +18,7 @@ private:
 
     std::unique_ptr<ASTNode> expression();
     std::unique_ptr<ASTNode> term();
+    std::unique_ptr<ASTNode> power();
     std::unique_ptr<ASTNode> factor();
     std::unique_ptr<ASTNode> statement();
     std::unique_ptr<ASTNode> block();

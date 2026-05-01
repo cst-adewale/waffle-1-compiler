@@ -2,6 +2,7 @@
 #include <memory>
 #include <vector>
 #include <string>
+#include <cmath>
 
 class ASTNode {
 public:
@@ -33,6 +34,8 @@ public:
         if (op == "-") return left->evaluate() - right->evaluate();
         if (op == "*") return left->evaluate() * right->evaluate();
         if (op == "/") return left->evaluate() / right->evaluate();
+        if (op == "^") return std::pow(left->evaluate(), right->evaluate());
+        if (op == "%") return std::fmod(left->evaluate(), right->evaluate());
         return 0;
     }
 
@@ -51,6 +54,25 @@ public:
     double evaluate() override { return expression->evaluate(); }
     std::string toString(int indent = 0) override {
         return std::string(indent, ' ') + "Return:\n" + expression->toString(indent + 2);
+    }
+};
+
+class UnaryFunctionNode : public ASTNode {
+public:
+    std::string funcName;
+    std::unique_ptr<ASTNode> argument;
+    UnaryFunctionNode(std::string name, std::unique_ptr<ASTNode> arg) : funcName(name), argument(std::move(arg)) {}
+    double evaluate() override {
+        double argVal = argument->evaluate();
+        if (funcName == "sin") return std::sin(argVal);
+        if (funcName == "cos") return std::cos(argVal);
+        if (funcName == "tan") return std::tan(argVal);
+        if (funcName == "sqrt") return std::sqrt(argVal);
+        if (funcName == "log") return std::log(argVal);
+        return 0;
+    }
+    std::string toString(int indent = 0) override {
+        return std::string(indent, ' ') + "Function: " + funcName + "\n" + argument->toString(indent + 2);
     }
 };
 

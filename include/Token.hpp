@@ -17,6 +17,13 @@ enum class WToken {
     LPAREN,
     RPAREN,
     SEMICOLON,
+    POWER,
+    MODULO,
+    SIN,
+    COS,
+    TAN,
+    SQRT,
+    LOG,
     END_OF_FILE,
     UNKNOWN
 };

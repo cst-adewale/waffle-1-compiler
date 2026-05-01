@@ -63,6 +63,10 @@ void DrawASTNode(Graphics& g, ASTNode* node, int x, int y, int xOffset, Font* fo
          if (!prog->statements.empty()) {
             DrawASTNode(g, prog->statements[0].get(), x, y + 40, xOffset, font, circleBrush, textBrush, pen);
          }
+    } else if (auto func = dynamic_cast<UnaryFunctionNode*>(node)) {
+        int nextY = y + 70;
+        g.DrawLine(pen, x, y, x, nextY);
+        DrawASTNode(g, func->argument.get(), x, nextY, xOffset / 2, font, circleBrush, textBrush, pen);
     }
 
     // Draw the node circle
@@ -77,6 +81,10 @@ void DrawASTNode(Graphics& g, ASTNode* node, int x, int y, int xOffset, Font* fo
         if (label.length() > 3) label = label.substr(0, 3);
     }
     else if (dynamic_cast<ReturnNode*>(node)) label = "RET";
+    else if (auto func = dynamic_cast<UnaryFunctionNode*>(node)) {
+        label = func->funcName;
+        if (label.length() > 3) label = label.substr(0, 3);
+    }
     else label = "?";
 
     std::wstring wLabel(label.begin(), label.end());
@@ -295,7 +303,16 @@ void ExecuteCode(HWND hwnd) {
         double result = globalAST->evaluate();
         char shellBuf[4096];
         GetWindowTextA(hOutputArea, shellBuf, 4096);
-        std::string shellOutput = std::string(shellBuf) + "\r\nvanilla-shell >> Result: " + std::to_string(result) + "\r\nvanilla-shell >> ";
+        std::string resultStr;
+        if (result == (int)result) {
+            resultStr = std::to_string((int)result);
+        } else {
+            resultStr = std::to_string(result);
+            // remove trailing zeros
+            resultStr.erase(resultStr.find_last_not_of('0') + 1, std::string::npos);
+            if (resultStr.back() == '.') resultStr.pop_back();
+        }
+        std::string shellOutput = std::string(shellBuf) + "\r\nvanilla-shell >> Result: " + resultStr + "\r\nvanilla-shell >> ";
         SetWindowTextA(hOutputArea, shellOutput.c_str());
         HighlightShell();
 
@@ -412,7 +429,7 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
         case WM_CREATE: {
             SetAppIcon(hwnd);
 
-            hOutputArea = CreateWindowEx(0, MSFTEDIT_CLASS, L"vanilla-shell >> enter your mathematical expression bellow\r\nvanilla-shell >> ", 
+            hOutputArea = CreateWindowEx(0, MSFTEDIT_CLASS, L"vanilla-shell >> enter your mathematical expression below\r\nvanilla-shell >> ", 
                 WS_CHILD | WS_VISIBLE | ES_MULTILINE | ES_AUTOVSCROLL,
                 50, 60, 600, 600, hwnd, NULL, NULL, NULL);
             SendMessage(hOutputArea, WM_SETFONT, (WPARAM)hFont, TRUE);

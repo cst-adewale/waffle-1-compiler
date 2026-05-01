@@ -20,6 +20,15 @@ std::unique_ptr<ASTNode> Parser::factor() {
     if (token.type == WToken::NUMBER) {
         eat(WToken::NUMBER);
         return std::make_unique<NumberNode>(std::stod(token.value));
+    } else if (token.type == WToken::SIN || token.type == WToken::COS || 
+               token.type == WToken::TAN || token.type == WToken::SQRT || 
+               token.type == WToken::LOG) {
+        std::string funcName = token.value;
+        eat(token.type);
+        eat(WToken::LPAREN);
+        auto arg = expression();
+        eat(WToken::RPAREN);
+        return std::make_unique<UnaryFunctionNode>(funcName, std::move(arg));
     } else if (token.type == WToken::LPAREN) {
         eat(WToken::LPAREN);
         auto node = expression();
@@ -29,17 +38,29 @@ std::unique_ptr<ASTNode> Parser::factor() {
     throw std::runtime_error("Expected number or parenthesis");
 }
 
-std::unique_ptr<ASTNode> Parser::term() {
+std::unique_ptr<ASTNode> Parser::power() {
     auto node = factor();
+    if (currentToken().type == WToken::POWER) {
+        Token token = currentToken();
+        eat(WToken::POWER);
+        node = std::make_unique<BinaryOpNode>(token.value, std::move(node), power());
+    }
+    return node;
+}
 
-    while (currentToken().type == WToken::MUL || currentToken().type == WToken::DIV) {
+std::unique_ptr<ASTNode> Parser::term() {
+    auto node = power();
+
+    while (currentToken().type == WToken::MUL || currentToken().type == WToken::DIV || currentToken().type == WToken::MODULO) {
         Token token = currentToken();
         if (token.type == WToken::MUL) {
             eat(WToken::MUL);
         } else if (token.type == WToken::DIV) {
             eat(WToken::DIV);
+        } else if (token.type == WToken::MODULO) {
+            eat(WToken::MODULO);
         }
-        node = std::make_unique<BinaryOpNode>(token.value, std::move(node), factor());
+        node = std::make_unique<BinaryOpNode>(token.value, std::move(node), power());
     }
 
     return node;

@@ -21,7 +21,12 @@ void Lexer::skipWhitespace() {
 Token Lexer::number() {
     int start = position;
     std::string result = "";
-    while (std::isdigit(currentChar())) {
+    bool hasDot = false;
+    while (std::isdigit(currentChar()) || currentChar() == '.') {
+        if (currentChar() == '.') {
+            if (hasDot) break;
+            hasDot = true;
+        }
         result += currentChar();
         advance();
     }
@@ -39,6 +44,11 @@ Token Lexer::identifier() {
     if (result == "int") type = WToken::INT;
     else if (result == "main") type = WToken::MAIN;
     else if (result == "return") type = WToken::RETURN;
+    else if (result == "sin") type = WToken::SIN;
+    else if (result == "cos") type = WToken::COS;
+    else if (result == "tan") type = WToken::TAN;
+    else if (result == "sqrt") type = WToken::SQRT;
+    else if (result == "log") type = WToken::LOG;
     
     return {type, result, start, (int)result.length()};
 }
@@ -72,6 +82,8 @@ Token Lexer::nextToken() {
         case '-': type = WToken::MINUS; break;
         case '*': type = WToken::MUL; break;
         case '/': type = WToken::DIV; break;
+        case '^': type = WToken::POWER; break;
+        case '%': type = WToken::MODULO; break;
         case '(': type = WToken::LPAREN; break;
         case ')': type = WToken::RPAREN; break;
         case ';': type = WToken::SEMICOLON; break;
