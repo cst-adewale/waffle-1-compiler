@@ -1,1 +1,1 @@
-A simple code compiler built in C++
+A code compiler built in C++ for C++ and wafflescript
